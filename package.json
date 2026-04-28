@@ -1,0 +1,81 @@
+{
+  "name": "code-line-analysis",
+  "version": "0.1.0",
+  "description": "Electron app for code line counting, baseline diff, tags, and code viewing/editing",
+  "main": "dist/main/index.js",
+  "author": "sam",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -k -n vite,main \"npm:dev:renderer\" \"npm:dev:main\"",
+    "dev:renderer": "vite",
+    "dev:main": "tsc -p tsconfig.main.json -w & wait-on http://localhost:5173 dist/main/index.js && cross-env NODE_ENV=development electron .",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build": "npm run build:renderer && npm run build:main",
+    "start": "electron .",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-builder install-app-deps",
+    "dist": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
+    "dist:signed": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "better-sqlite3": "^12.9.0",
+    "fast-glob": "^3.3.2",
+    "ignore": "^6.0.2",
+    "monaco-editor": "^0.52.0",
+    "p-limit": "^6.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.27.0",
+    "recharts": "^2.13.0",
+    "simple-git": "^3.27.0",
+    "xxhash-wasm": "^1.0.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.7.5",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "41.3.0",
+    "electron-builder": "^25.1.8",
+    "@electron/rebuild": "^3.7.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.9",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.sam.codelineanalysis",
+    "productName": "Code Line Analysis",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    }
+  }
+}

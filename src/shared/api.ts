@@ -1,0 +1,206 @@
+// Shared types between main, preload, and renderer.
+
+export interface FolderRow {
+  id: number;
+  rootPath: string;
+  name: string;
+  baselineAt: number | null;
+  createdAt: number;
+}
+
+export interface FolderRules {
+  whitelist: string[]; // glob patterns; if non-empty, only these are scanned
+  blacklist: string[]; // glob patterns; subtracted from candidate set
+}
+
+export interface FileRow {
+  id: number;
+  folderId: number;
+  relPath: string;
+  lang: string;
+  size: number;
+  mtime: number;
+  hash: string;
+  total: number;
+  code: number;
+  comment: number;
+  blank: number;
+  blockComment: number;
+  baselineTotal: number;
+  scannedAt: number;
+  deleted: number;
+}
+
+export interface TagRow {
+  fileId: number;
+  kind: 'TODO' | 'FIXME' | 'HACK' | 'NOTE' | 'XXX';
+  lineNo: number;
+  text: string;
+}
+
+export interface FunctionRow {
+  fileId: number;
+  name: string;
+  startLine: number;
+  endLine: number;
+  length: number;
+}
+
+export interface DuplicateRow {
+  hash: string;
+  fileId: number;
+  startLine: number;
+  endLine: number;
+}
+
+export interface ScanProgress {
+  folderId: number;
+  phase: 'walking' | 'parsing' | 'persisting' | 'done';
+  total: number;
+  done: number;
+  current?: string;
+  cacheHits?: number;
+}
+
+export interface FolderStats {
+  totalFiles: number;
+  totalLines: number;
+  totalCode: number;
+  totalComment: number;
+  totalBlank: number;
+  totalBlockComment: number;
+  baselineTotal: number;
+  delta: number; // totalLines - baselineTotal
+  byLang: Array<{ lang: string; files: number; total: number; code: number; comment: number; blank: number }>;
+  tagCounts: Record<string, number>;
+}
+
+export interface DirNode {
+  name: string;
+  path: string; // relPath; '' for root
+  isDir: boolean;
+  total: number;
+  code: number;
+  comment: number;
+  blank: number;
+  files: number;
+  children?: DirNode[];
+}
+
+export interface TopFile {
+  relPath: string;
+  total: number;
+  code: number;
+  size: number;
+  lang: string;
+}
+
+export type TopFileSortKey = 'total' | 'size';
+
+export interface TopFunction {
+  relPath: string;
+  name: string;
+  startLine: number;
+  endLine: number;
+  length: number;
+}
+
+export interface HeatmapBucket {
+  date: string; // YYYY-MM-DD
+  files: number;
+  lines: number;
+}
+
+export interface DuplicateCluster {
+  hash: string;
+  occurrences: Array<{ relPath: string; startLine: number; endLine: number }>;
+  lines: number;
+}
+
+export interface FileMeta {
+  relPath: string;
+  size: number;
+  mtime: number;
+  lang: string;
+  total: number;
+  code: number;
+  comment: number;
+  blank: number;
+  blockComment: number;
+  baselineTotal: number;
+  hash: string;
+}
+
+export interface GitFileInfo {
+  lastSha: string | null;
+  lastAuthor: string | null;
+  lastDate: number | null;
+  topAuthors: Array<{ author: string; lines: number }>;
+}
+
+export interface ScanOptions {
+  full?: boolean;
+  detectDuplicates?: boolean;
+}
+
+export interface TreeNodeContextMenuLabels {
+  copyName: string;
+  copyRelativePath: string;
+  copyAbsolutePath: string;
+  openPath: string;
+  revealInFinder: string;
+}
+
+export interface TreeNodeContextMenuRequest {
+  folderId: number;
+  relPath: string;
+  displayName: string;
+  x?: number;
+  y?: number;
+  labels: TreeNodeContextMenuLabels;
+}
+
+export interface Api {
+  folders: {
+    add: (rootPath: string) => Promise<FolderRow>;
+    list: () => Promise<FolderRow[]>;
+    remove: (id: number) => Promise<void>;
+    getRules: (id: number) => Promise<FolderRules>;
+    setRules: (id: number, rules: FolderRules) => Promise<void>;
+    pickDirectory: () => Promise<string | null>;
+  };
+  scan: {
+    run: (folderId: number, opts?: ScanOptions) => Promise<FolderStats>;
+    initBaseline: (folderId: number) => Promise<void>;
+    resetBaseline: (folderId: number) => Promise<void>;
+    cancel: () => Promise<void>;
+    onProgress: (cb: (p: ScanProgress) => void) => () => void;
+  };
+  stats: {
+    summary: (folderId: number) => Promise<FolderStats>;
+    tree: (folderId: number) => Promise<DirNode>;
+    topFiles: (folderId: number, limit?: number, sortBy?: TopFileSortKey) => Promise<TopFile[]>;
+    topFunctions: (folderId: number, limit?: number) => Promise<TopFunction[]>;
+    tags: (folderId: number, kind?: string) => Promise<Array<TagRow & { relPath: string }>>;
+    fileTags: (folderId: number, relPath: string) => Promise<TagRow[]>;
+    heatmap: (folderId: number, days?: number) => Promise<HeatmapBucket[]>;
+    duplicates: (folderId: number) => Promise<DuplicateCluster[]>;
+  };
+  file: {
+    read: (folderId: number, relPath: string) => Promise<{ content: string; meta: FileMeta }>;
+    write: (folderId: number, relPath: string, content: string) => Promise<FileMeta>;
+    meta: (folderId: number, relPath: string) => Promise<FileMeta | null>;
+  };
+  git: {
+    fileInfo: (folderId: number, relPath: string) => Promise<GitFileInfo | null>;
+  };
+  system: {
+    showTreeNodeContextMenu: (request: TreeNodeContextMenuRequest) => Promise<void>;
+  };
+}
+
+declare global {
+  interface Window {
+    api: Api;
+  }
+}
