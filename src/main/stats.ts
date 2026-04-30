@@ -2,16 +2,23 @@ import { getDb } from './db';
 import type {
   FolderStats, DirNode, TopFile, TopFunction, TagRow, HeatmapBucket, DuplicateCluster, TopFileSortKey,
 } from '../shared/api';
+import { DEFAULT_DUPLICATE_LINES } from '../shared/api';
+
+function getDuplicateMinLines(db: ReturnType<typeof getDb>, folderId: number): number {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(`duplicateMinLines:${folderId}`) as { value: string } | undefined;
+  if (!row) return DEFAULT_DUPLICATE_LINES;
+  const parsed = Number(row.value);
+  return Number.isInteger(parsed) && parsed >= 3 ? parsed : DEFAULT_DUPLICATE_LINES;
+}
 
 export function getSummary(folderId: number): FolderStats {
   const db = getDb();
   const totals = db.prepare(`
     SELECT COUNT(*) AS files, COALESCE(SUM(total),0) AS total,
            COALESCE(SUM(code),0) AS code, COALESCE(SUM(comment),0) AS comment,
-           COALESCE(SUM(blank),0) AS blank, COALESCE(SUM(block_comment),0) AS blockComment,
-           COALESCE(SUM(baseline_total),0) AS baseline
+           COALESCE(SUM(blank),0) AS blank, COALESCE(SUM(block_comment),0) AS blockComment
     FROM files WHERE folder_id = ? AND deleted = 0
-  `).get(folderId) as { files: number; total: number; code: number; comment: number; blank: number; blockComment: number; baseline: number };
+  `).get(folderId) as { files: number; total: number; code: number; comment: number; blank: number; blockComment: number };
 
   const byLang = db.prepare(`
     SELECT lang, COUNT(*) AS files, SUM(total) AS total, SUM(code) AS code,
@@ -36,8 +43,6 @@ export function getSummary(folderId: number): FolderStats {
     totalComment: totals.comment,
     totalBlank: totals.blank,
     totalBlockComment: totals.blockComment,
-    baselineTotal: totals.baseline,
-    delta: totals.total - totals.baseline,
     byLang,
     tagCounts,
   };
@@ -164,6 +169,7 @@ export function getHeatmap(folderId: number, days = 30): HeatmapBucket[] {
 
 export function getDuplicates(folderId: number): DuplicateCluster[] {
   const db = getDb();
+  const duplicateMinLines = getDuplicateMinLines(db, folderId);
   const rows = db.prepare(`
     SELECT duplicates.hash, files.rel_path AS relPath, duplicates.start_line AS startLine, duplicates.end_line AS endLine
     FROM duplicates JOIN files ON duplicates.file_id = files.id
@@ -180,7 +186,7 @@ export function getDuplicates(folderId: number): DuplicateCluster[] {
   const clusters: DuplicateCluster[] = [];
   for (const [hash, occurrences] of groups) {
     if (occurrences.length < 2) continue;
-    clusters.push({ hash, occurrences, lines: occurrences[0].endLine - occurrences[0].startLine + 1 });
+    clusters.push({ hash, occurrences, lines: duplicateMinLines });
   }
   clusters.sort((a, b) => b.occurrences.length * b.lines - a.occurrences.length * a.lines);
   return clusters.slice(0, 200);

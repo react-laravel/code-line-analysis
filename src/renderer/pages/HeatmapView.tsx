@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { FolderRow, HeatmapBucket } from '../../shared/api';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { useI18n } from '../i18n';
+import PageHeader from '../components/PageHeader';
 
 interface Props {
   folder: FolderRow | null;
@@ -33,17 +34,19 @@ export default function HeatmapView({ folder, scanRevision }: Props) {
 
   function header(nextSortKey: SortKey, label: string) {
     return (
-      <th
-        onClick={() => {
-          if (sortKey === nextSortKey) setAsc(current => !current);
-          else {
-            setSortKey(nextSortKey);
-            setAsc(false);
-          }
-        }}
-        style={{ cursor: 'pointer' }}
-      >
-        {label} {sortKey === nextSortKey ? (asc ? '↑' : '↓') : ''}
+      <th>
+        <button
+          className="table-sort-button"
+          onClick={() => {
+            if (sortKey === nextSortKey) setAsc(current => !current);
+            else {
+              setSortKey(nextSortKey);
+              setAsc(false);
+            }
+          }}
+        >
+          {label} {sortKey === nextSortKey ? (asc ? '↑' : '↓') : ''}
+        </button>
       </th>
     );
   }
@@ -51,15 +54,23 @@ export default function HeatmapView({ folder, scanRevision }: Props) {
   if (!folder) return <div className="empty">{t('common.selectFolder')}</div>;
 
   return (
-    <div>
-      <h1>{t('heatmap.title')}</h1>
-      <div className="toolbar">
-        <label>{t('heatmap.window')} <select value={days} onChange={e => setDays(+e.target.value)}>
-          <option value={7}>{t('heatmap.days', { count: 7 })}</option><option value={30}>{t('heatmap.days', { count: 30 })}</option>
-          <option value={90}>{t('heatmap.days', { count: 90 })}</option><option value={365}>{t('heatmap.days', { count: 365 })}</option>
-        </select></label>
-      </div>
-      <div style={{ height: 320 }}>
+    <div className="heatmap-page">
+      <PageHeader
+        title={t('heatmap.title')}
+        description={t('heatmap.subtitle')}
+        actions={(
+          <label className="page-select-field">
+            <span>{t('heatmap.window')}</span>
+            <select value={days} onChange={e => setDays(+e.target.value)}>
+              <option value={7}>{t('heatmap.days', { count: 7 })}</option>
+              <option value={30}>{t('heatmap.days', { count: 30 })}</option>
+              <option value={90}>{t('heatmap.days', { count: 90 })}</option>
+              <option value={365}>{t('heatmap.days', { count: 365 })}</option>
+            </select>
+          </label>
+        )}
+      />
+      <div className="chart-box heatmap-chart-box">
         <ResponsiveContainer>
           <BarChart data={sortedData}>
             <XAxis dataKey="date" stroke="#8b949e" />
@@ -69,10 +80,12 @@ export default function HeatmapView({ folder, scanRevision }: Props) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <table>
-        <thead><tr>{header('date', t('common.date'))}{header('files', t('common.files'))}{header('lines', t('heatmap.totalLinesSinceDate'))}</tr></thead>
-        <tbody>{sortedData.map(b => <tr key={b.date}><td>{b.date}</td><td>{b.files.toLocaleString(locale)}</td><td>{b.lines.toLocaleString(locale)}</td></tr>)}</tbody>
-      </table>
+      <div className="table-wrap">
+        <table>
+          <thead><tr>{header('date', t('common.date'))}{header('files', t('common.files'))}{header('lines', t('heatmap.totalLinesSinceDate'))}</tr></thead>
+          <tbody>{sortedData.map(b => <tr key={b.date}><td>{b.date}</td><td>{b.files.toLocaleString(locale)}</td><td>{b.lines.toLocaleString(locale)}</td></tr>)}</tbody>
+        </table>
+      </div>
     </div>
   );
 }

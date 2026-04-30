@@ -2,7 +2,7 @@ import { app, BrowserWindow, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { getDb, closeDb } from './db';
-import { registerIpc } from './ipc';
+import { registerIpc, disposeRegisteredIpcResources } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -68,4 +68,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => { closeDb(); });
+app.on('before-quit', () => {
+  disposeRegisteredIpcResources();
+  closeDb();
+});

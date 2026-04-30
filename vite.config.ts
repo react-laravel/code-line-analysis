@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import packageJson from './package.json';
 
 export default defineConfig({
   root: 'src/renderer',
   base: './',
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(packageJson.version),
+  },
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),

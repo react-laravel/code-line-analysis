@@ -8,18 +8,22 @@ const api: Api = {
     remove: (id) => ipcRenderer.invoke('folders:remove', id),
     getRules: (id) => ipcRenderer.invoke('folders:getRules', id),
     setRules: (id, rules) => ipcRenderer.invoke('folders:setRules', id, rules),
+    getDuplicateMinLines: (id) => ipcRenderer.invoke('folders:getDuplicateMinLines', id),
+    setDuplicateMinLines: (id, count) => ipcRenderer.invoke('folders:setDuplicateMinLines', id, count),
     pickDirectory: () => ipcRenderer.invoke('folders:pickDirectory'),
   },
   scan: {
     run: (folderId, opts) => ipcRenderer.invoke('scan:run', folderId, opts ?? {}),
-    initBaseline: (folderId) => ipcRenderer.invoke('scan:initBaseline', folderId),
-    resetBaseline: (folderId) => ipcRenderer.invoke('scan:resetBaseline', folderId),
     cancel: () => ipcRenderer.invoke('scan:cancel'),
     onProgress: (cb) => {
       const listener = (_e: unknown, p: ScanProgress) => cb(p);
       ipcRenderer.on('scan:progress', listener);
       return () => ipcRenderer.removeListener('scan:progress', listener);
     },
+  },
+  settings: {
+    getGlobalRules: () => ipcRenderer.invoke('settings:getGlobalRules'),
+    setGlobalRules: (rules) => ipcRenderer.invoke('settings:setGlobalRules', rules),
   },
   stats: {
     summary: (folderId) => ipcRenderer.invoke('stats:summary', folderId),

@@ -33,6 +33,8 @@ export default function EditorView({ folder, scanRevision }: Props) {
   const { locale, t } = useI18n();
   const decodedPath = relPath;
   const targetLine = Number(searchParams.get('line')) || 0;
+  const targetEndLine = Number(searchParams.get('endLine')) || 0;
+  const highlightKind = searchParams.get('highlight');
   const currentFileKey = folder && decodedPath ? `${folder.id}:${decodedPath}` : '';
 
   const [content, setContent] = useState<string>('');
@@ -46,6 +48,8 @@ export default function EditorView({ folder, scanRevision }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loadedPath, setLoadedPath] = useState('');
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
+  const decorationIdsRef = useRef<string[]>([]);
   const activeFileKeyRef = useRef(currentFileKey);
   const lastFileKeyRef = useRef(currentFileKey);
   const fileVersionRef = useRef(0);
@@ -59,15 +63,59 @@ export default function EditorView({ folder, scanRevision }: Props) {
     return activeFileKeyRef.current === requestKey && fileVersionRef.current === requestVersion;
   }
 
-  function revealTargetLine(lineNumber: number) {
+  function revealTargetLine(lineNumber: number, endLine?: number) {
     const mountedEditor = editorRef.current;
     if (!mountedEditor || lineNumber <= 0) return;
     const model = mountedEditor.getModel();
     if (!model) return;
     const safeLineNumber = Math.min(Math.max(lineNumber, 1), model.getLineCount() || 1);
-    mountedEditor.revealLineInCenter(safeLineNumber);
-    mountedEditor.setPosition({ lineNumber: safeLineNumber, column: 1 });
+    const safeEndLine = Math.min(Math.max(endLine ?? lineNumber, safeLineNumber), model.getLineCount() || 1);
+    if (safeEndLine > safeLineNumber) {
+      mountedEditor.revealLinesInCenter(safeLineNumber, safeEndLine);
+      mountedEditor.setSelection({ startLineNumber: safeLineNumber, startColumn: 1, endLineNumber: safeEndLine, endColumn: model.getLineMaxColumn(safeEndLine) });
+    } else {
+      mountedEditor.revealLineInCenter(safeLineNumber);
+      mountedEditor.setPosition({ lineNumber: safeLineNumber, column: 1 });
+    }
     mountedEditor.focus();
+  }
+
+  function clearHighlights() {
+    const mountedEditor = editorRef.current;
+    if (!mountedEditor || decorationIdsRef.current.length === 0) return;
+    decorationIdsRef.current = mountedEditor.deltaDecorations(decorationIdsRef.current, []);
+  }
+
+  function applyHighlights(startLine: number, endLine: number, kind: string | null) {
+    const mountedEditor = editorRef.current;
+    const monacoInstance = monacoRef.current;
+    const model = mountedEditor?.getModel();
+    if (!mountedEditor || !monacoInstance || !model || startLine <= 0) {
+      clearHighlights();
+      return;
+    }
+
+    const safeStart = Math.min(Math.max(startLine, 1), model.getLineCount() || 1);
+    const safeEnd = Math.min(Math.max(endLine || startLine, safeStart), model.getLineCount() || 1);
+    const tone = kind === 'duplicate' ? 'duplicate' : kind === 'function' ? 'function' : 'default';
+
+    decorationIdsRef.current = mountedEditor.deltaDecorations(decorationIdsRef.current, [
+      {
+        range: new monacoInstance.Range(safeStart, 1, safeEnd, model.getLineMaxColumn(safeEnd)),
+        options: {
+          isWholeLine: true,
+          className: `editor-highlight-range ${tone}`,
+          linesDecorationsClassName: `editor-highlight-gutter ${tone}`,
+        },
+      },
+      {
+        range: new monacoInstance.Range(safeStart, 1, safeStart, model.getLineMaxColumn(safeStart)),
+        options: {
+          isWholeLine: true,
+          className: `editor-highlight-anchor ${tone}`,
+        },
+      },
+    ]);
   }
 
   function jumpToLine(lineNumber: number) {
@@ -124,12 +172,20 @@ export default function EditorView({ folder, scanRevision }: Props) {
   }, [currentFileKey, decodedPath, folder?.id, scanRevision]);
 
   useEffect(() => {
-    if (!editorReady || loadedPath !== decodedPath || targetLine <= 0) return;
-    revealTargetLine(targetLine);
-  }, [decodedPath, editorReady, loadedPath, targetLine]);
+    if (!editorReady || loadedPath !== decodedPath) return;
+    if (targetLine <= 0) {
+      clearHighlights();
+      return;
+    }
+    applyHighlights(targetLine, targetEndLine, highlightKind);
+    revealTargetLine(targetLine, targetEndLine);
+  }, [decodedPath, editorReady, highlightKind, loadedPath, targetEndLine, targetLine]);
 
-  const onMount: OnMount = (mountedEditor) => {
+  useEffect(() => clearHighlights, []);
+
+  const onMount: OnMount = (mountedEditor, monacoInstance) => {
     editorRef.current = mountedEditor;
+    monacoRef.current = monacoInstance;
     setEditorReady(true);
   };
 
@@ -237,6 +293,7 @@ export default function EditorView({ folder, scanRevision }: Props) {
           onMount={onMount}
           options={{
             readOnly,
+            glyphMargin: true,
             minimap: { enabled: true },
             fontSize: 13,
             wordWrap: 'on',

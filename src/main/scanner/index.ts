@@ -11,7 +11,7 @@ import { scanTags } from '../parsers/tagScanner';
 import { findFunctions } from '../parsers/funcDetect';
 import { findDuplicateSlices } from '../parsers/duplicate';
 import { getDb } from '../db';
-import type { ScanProgress, ScanOptions, FolderRules } from '../../shared/api';
+import { DEFAULT_DUPLICATE_LINES, type ScanProgress, type ScanOptions, type FolderRules } from '../../shared/api';
 
 export type ProgressCb = (p: ScanProgress) => void;
 
@@ -41,11 +41,11 @@ async function hashContent(buf: Buffer): Promise<string> {
   return createHash('sha1').update(buf).digest('hex');
 }
 
-async function refreshDuplicateSlices(abs: string, size: number): Promise<ReturnType<typeof findDuplicateSlices> | null> {
+async function refreshDuplicateSlices(abs: string, size: number, duplicateMinLines: number): Promise<ReturnType<typeof findDuplicateSlices> | null> {
   let buf: Buffer;
   try { buf = await fs.readFile(abs); } catch { return null; }
   if (isBinaryBuffer(buf) || size > 5 * 1024 * 1024) return [];
-  return findDuplicateSlices(buf.toString('utf-8'));
+  return findDuplicateSlices(buf.toString('utf-8'), duplicateMinLines);
 }
 
 export async function scanFolder(
@@ -57,6 +57,7 @@ export async function scanFolder(
 ): Promise<{ scanned: number; cacheHits: number }> {
   cancelFlag = false;
   const db = getDb();
+  const duplicateMinLines = Math.max(3, Math.floor(opts.duplicateMinLines ?? DEFAULT_DUPLICATE_LINES));
 
   onProgress({ folderId, phase: 'walking', total: 0, done: 0 });
   const relPaths = await walkFolder({ root, whitelist: rules.whitelist, blacklist: rules.blacklist });
@@ -94,7 +95,7 @@ export async function scanFolder(
 
     // Quick cache hit on size+mtime — skip hashing.
     if (!opts.full && existing && existing.lang !== 'Binary' && existing.size === sizeNum && existing.mtime === mtimeNum) {
-      const duplicates = opts.detectDuplicates ? await refreshDuplicateSlices(abs, sizeNum) : null;
+      const duplicates = opts.detectDuplicates ? await refreshDuplicateSlices(abs, sizeNum, duplicateMinLines) : null;
       cacheHits++;
       parsed.push({
         relPath: rel, ext: existing.ext, lang: existing.lang,
@@ -122,7 +123,7 @@ export async function scanFolder(
     const hash = await hashContent(buf);
 
     if (!opts.full && existing && existing.lang !== 'Binary' && existing.hash === hash && existing.size === sizeNum) {
-      const duplicates = opts.detectDuplicates && sizeNum <= 5 * 1024 * 1024 ? findDuplicateSlices(buf.toString('utf-8')) : [];
+      const duplicates = opts.detectDuplicates && sizeNum <= 5 * 1024 * 1024 ? findDuplicateSlices(buf.toString('utf-8'), duplicateMinLines) : [];
       cacheHits++;
       parsed.push({
         relPath: rel, ext: existing.ext, lang: existing.lang,
@@ -158,7 +159,7 @@ export async function scanFolder(
     const counts = countLines(content, lang);
     const tags = scanTags(content, lang);
     const functions = findFunctions(content, ext);
-    const duplicates = opts.detectDuplicates ? findDuplicateSlices(content) : [];
+    const duplicates = opts.detectDuplicates ? findDuplicateSlices(content, duplicateMinLines) : [];
 
     parsed.push({
       relPath: rel, ext, lang: langId,
@@ -173,14 +174,17 @@ export async function scanFolder(
     if (done % 25 === 0) onProgress({ folderId, phase: 'parsing', total, done, cacheHits, current: rel });
   })));
 
-  if (cancelFlag) return { scanned: done, cacheHits };
+  if (cancelFlag) {
+    onProgress({ folderId, phase: 'done', total, done, cacheHits });
+    return { scanned: done, cacheHits };
+  }
 
   onProgress({ folderId, phase: 'persisting', total, done, cacheHits });
 
   // Persist in single transaction.
   const upsert = db.prepare(`
-    INSERT INTO files (folder_id, rel_path, lang, ext, size, mtime, hash, total, code, comment, blank, block_comment, baseline_total, scanned_at, deleted)
-    VALUES (@folder_id, @rel_path, @lang, @ext, @size, @mtime, @hash, @total, @code, @comment, @blank, @block_comment, 0, @scanned_at, 0)
+    INSERT INTO files (folder_id, rel_path, lang, ext, size, mtime, hash, total, code, comment, blank, block_comment, scanned_at, deleted)
+    VALUES (@folder_id, @rel_path, @lang, @ext, @size, @mtime, @hash, @total, @code, @comment, @blank, @block_comment, @scanned_at, 0)
     ON CONFLICT(folder_id, rel_path) DO UPDATE SET
       lang = excluded.lang,
       ext = excluded.ext,

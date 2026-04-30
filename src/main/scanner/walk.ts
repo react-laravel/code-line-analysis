@@ -10,22 +10,6 @@ export interface WalkOptions {
   blacklist: string[];
 }
 
-const DEFAULT_BLACKLIST = [
-  'node_modules',
-  'vendor',
-  'dist',
-  'build',
-  '.git',
-  '.idea',
-  '.vscode',
-  '*.min.js',
-  '*.min.css',
-  '*.lock',
-  'package-lock.json',
-  'yarn.lock',
-  'pnpm-lock.yaml',
-];
-
 function loadGitignore(root: string): Ignore {
   const ig = ignore();
   const gi = path.join(root, '.gitignore');
@@ -39,7 +23,7 @@ function loadGitignore(root: string): Ignore {
 
 export async function walkFolder(opts: WalkOptions): Promise<string[]> {
   const { root } = opts;
-  const blacklist = [...DEFAULT_BLACKLIST, ...opts.blacklist.filter(Boolean)];
+  const blacklist = opts.blacklist.filter(Boolean);
 
   const patterns = opts.whitelist.length ? opts.whitelist : ['**/*'];
 
@@ -58,5 +42,3 @@ export async function walkFolder(opts: WalkOptions): Promise<string[]> {
     .map(p => p.split(path.sep).join('/'))
     .filter(p => !isExcludedAssetPath(p));
 }
-
-export { DEFAULT_BLACKLIST };

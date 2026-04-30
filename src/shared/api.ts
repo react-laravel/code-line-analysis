@@ -1,10 +1,21 @@
 // Shared types between main, preload, and renderer.
 
+export const DEFAULT_BLACKLIST = [
+  'node_modules',
+  'vendor',
+  'dist',
+  'build',
+  '.git',
+  '*.min.js',
+  '*.lock',
+] as const;
+
+export const DEFAULT_DUPLICATE_LINES = 8;
+
 export interface FolderRow {
   id: number;
   rootPath: string;
   name: string;
-  baselineAt: number | null;
   createdAt: number;
 }
 
@@ -26,7 +37,6 @@ export interface FileRow {
   comment: number;
   blank: number;
   blockComment: number;
-  baselineTotal: number;
   scannedAt: number;
   deleted: number;
 }
@@ -69,8 +79,6 @@ export interface FolderStats {
   totalComment: number;
   totalBlank: number;
   totalBlockComment: number;
-  baselineTotal: number;
-  delta: number; // totalLines - baselineTotal
   byLang: Array<{ lang: string; files: number; total: number; code: number; comment: number; blank: number }>;
   tagCounts: Record<string, number>;
 }
@@ -127,7 +135,6 @@ export interface FileMeta {
   comment: number;
   blank: number;
   blockComment: number;
-  baselineTotal: number;
   hash: string;
 }
 
@@ -141,6 +148,7 @@ export interface GitFileInfo {
 export interface ScanOptions {
   full?: boolean;
   detectDuplicates?: boolean;
+  duplicateMinLines?: number;
 }
 
 export interface TreeNodeContextMenuLabels {
@@ -167,14 +175,18 @@ export interface Api {
     remove: (id: number) => Promise<void>;
     getRules: (id: number) => Promise<FolderRules>;
     setRules: (id: number, rules: FolderRules) => Promise<void>;
+    getDuplicateMinLines: (id: number) => Promise<number>;
+    setDuplicateMinLines: (id: number, count: number) => Promise<void>;
     pickDirectory: () => Promise<string | null>;
   };
   scan: {
     run: (folderId: number, opts?: ScanOptions) => Promise<FolderStats>;
-    initBaseline: (folderId: number) => Promise<void>;
-    resetBaseline: (folderId: number) => Promise<void>;
     cancel: () => Promise<void>;
     onProgress: (cb: (p: ScanProgress) => void) => () => void;
+  };
+  settings: {
+    getGlobalRules: () => Promise<FolderRules>;
+    setGlobalRules: (rules: FolderRules) => Promise<void>;
   };
   stats: {
     summary: (folderId: number) => Promise<FolderStats>;

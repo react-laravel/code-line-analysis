@@ -7,18 +7,17 @@ Code Line Analysis is an Electron desktop app for scanning local repositories, s
 ## Highlights
 
 - Analyze multiple folders in one workspace.
-- Run incremental scans or full rescans with live progress updates.
+- Scan folders with live progress updates.
 - Count total, code, comment, blank, and block-comment lines.
-- Track baseline snapshots and line deltas over time.
 - Browse results through dashboard, tree, files, tags, top, heatmap, and duplicate-code views.
 - Inspect and edit files in-app with Monaco Editor, line jumps, and Git metadata.
-- Control scan scope with whitelist and blacklist glob rules.
+- Control scan scope with global whitelist and blacklist rules, then refine them per workspace.
 - Switch the UI between English and Simplified Chinese.
 
 ## Views
 
 - Workspace: add folders and switch between analyzed projects.
-- Dashboard: summary cards, per-language charts, scans, and baseline actions.
+- Dashboard: summary cards and per-language charts.
 - Folder Manager: configure whitelist and blacklist scan rules.
 - Tree: inspect directory totals and open files from a hierarchical view.
 - Files: search, filter, sort, and open scanned files.
@@ -75,9 +74,10 @@ npm run dist:signed
 
 1. Open the app and add a folder from the Workspace view.
 2. The app can start an initial scan immediately after adding a folder.
-3. Use Dashboard actions to run an incremental scan, a full rescan, or manage the baseline.
-4. Browse the project through the Tree, Files, Tags, Top, Heatmap, and Duplicates views.
-5. Open a file in the editor to inspect metrics, Git info, tags, and optionally save changes.
+3. Configure global whitelist and blacklist rules in Settings when you need app-wide defaults.
+4. Refine scan scope for an individual workspace in Folder Manager.
+5. Browse the project through the Tree, Files, Tags, Top, Heatmap, and Duplicates views.
+6. Open a file in the editor to inspect metrics, Git info, tags, and optionally save changes.
 
 ## Data Storage
 

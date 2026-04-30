@@ -25,8 +25,12 @@ function migrate(d: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       root_path TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
-      baseline_at INTEGER,
       created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS rules (
@@ -51,7 +55,6 @@ function migrate(d: Database.Database): void {
       comment INTEGER NOT NULL,
       blank INTEGER NOT NULL,
       block_comment INTEGER NOT NULL,
-      baseline_total INTEGER NOT NULL DEFAULT 0,
       scanned_at INTEGER NOT NULL,
       deleted INTEGER NOT NULL DEFAULT 0,
       UNIQUE(folder_id, rel_path),

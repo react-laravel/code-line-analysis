@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { FolderRow, TagRow } from '../../shared/api';
 import { useI18n } from '../i18n';
+import PageHeader from '../components/PageHeader';
 
 interface Props {
   folder: FolderRow | null;
@@ -82,49 +83,57 @@ export default function TagsView({ folder, scanRevision }: Props) {
   }
 
   return (
-    <div>
-      <h1>{t('tags.title')}</h1>
-      <div className="toolbar">
-        <select value={kind} onChange={e => setKind(e.target.value)}>
-          {KINDS.map(k => <option key={k} value={k}>{k || t('common.all')}</option>)}
-        </select>
-        <span className="muted">{t('tags.count', { tags: limitedTags.length.toLocaleString(locale), files: groupedTags.length.toLocaleString(locale) })}</span>
-      </div>
-      <table>
-        <thead><tr><th>{t('common.kind')}</th><th>{t('common.file')}</th><th>{t('common.lines')}</th><th>{t('tags.jump')}</th><th>{t('common.text')}</th></tr></thead>
-        <tbody>
-          {groupedTags.map(group => (
-            <tr key={group.relPath}>
-              <td>
-                {group.kinds.map(currentKind => (
-                  <span key={`${group.relPath}-${currentKind}`} className={`tag-pill tag-${currentKind}`}>{currentKind}</span>
-                ))}
-              </td>
-              <td>
-                <button className="tag-file-button mono" onClick={() => openTag(group.relPath, group.hits[0].lineNo)}>
-                  {group.relPath}
-                </button>
-              </td>
-              <td className="mono">{group.hits.map(hit => hit.lineNo.toLocaleString(locale)).join(', ')}</td>
-              <td>
-                <div className="tag-jump-list">
-                  {group.hits.map((hit, index) => (
-                    <button
-                      key={`${group.relPath}-${hit.lineNo}-${index}`}
-                      className="tag-jump-button"
-                      title={t('tags.jumpToLine', { line: hit.lineNo.toLocaleString(locale) })}
-                      onClick={() => openTag(group.relPath, hit.lineNo)}
-                    >
-                      {(index + 1).toLocaleString(locale)}
-                    </button>
+    <div className="tags-page">
+      <PageHeader
+        title={t('tags.title')}
+        description={t('tags.subtitle')}
+        meta={t('tags.count', { tags: limitedTags.length.toLocaleString(locale), files: groupedTags.length.toLocaleString(locale) })}
+        actions={(
+          <label className="page-select-field">
+            <span>{t('common.kind')}</span>
+            <select value={kind} onChange={e => setKind(e.target.value)}>
+              {KINDS.map(k => <option key={k} value={k}>{k || t('common.all')}</option>)}
+            </select>
+          </label>
+        )}
+      />
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>{t('common.kind')}</th><th>{t('common.file')}</th><th>{t('common.lines')}</th><th>{t('tags.jump')}</th><th>{t('common.text')}</th></tr></thead>
+          <tbody>
+            {groupedTags.map(group => (
+              <tr key={group.relPath}>
+                <td>
+                  {group.kinds.map(currentKind => (
+                    <span key={`${group.relPath}-${currentKind}`} className={`tag-pill tag-${currentKind}`}>{currentKind}</span>
                   ))}
-                </div>
-              </td>
-              <td className="mono">{group.hits[0].text}{group.hits.length > 1 ? ` (+${group.hits.length - 1})` : ''}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                </td>
+                <td>
+                  <button className="tag-file-button mono" onClick={() => openTag(group.relPath, group.hits[0].lineNo)}>
+                    {group.relPath}
+                  </button>
+                </td>
+                <td className="mono">{group.hits.map(hit => hit.lineNo.toLocaleString(locale)).join(', ')}</td>
+                <td>
+                  <div className="tag-jump-list">
+                    {group.hits.map((hit, index) => (
+                      <button
+                        key={`${group.relPath}-${hit.lineNo}-${index}`}
+                        className="tag-jump-button"
+                        title={t('tags.jumpToLine', { line: hit.lineNo.toLocaleString(locale) })}
+                        onClick={() => openTag(group.relPath, hit.lineNo)}
+                      >
+                        {(index + 1).toLocaleString(locale)}
+                      </button>
+                    ))}
+                  </div>
+                </td>
+                <td className="mono">{group.hits[0].text}{group.hits.length > 1 ? ` (+${group.hits.length - 1})` : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { FolderRow, TopFile } from '../../shared/api';
+import PageHeader from '../components/PageHeader';
 import { useI18n } from '../i18n';
 
 interface Props {
@@ -75,6 +76,12 @@ export default function FilesView({ folder, scanRevision }: Props) {
     return arr;
   }, [rows, q, languageFilter, extensionFilter, minLines, maxLines, sortKey, asc, locale]);
 
+  const activeFilterCount = [q, languageFilter !== 'ALL' ? languageFilter : '', extensionFilter !== 'ALL' ? extensionFilter : '', minLines, maxLines]
+    .filter(value => value !== '').length;
+  const activeFilterLabel = activeFilterCount > 0
+    ? t('files.activeFilters', { count: activeFilterCount.toLocaleString(locale) })
+    : t('files.noFilters');
+
   function clearFilters() {
     setQ('');
     setLanguageFilter('ALL');
@@ -83,10 +90,22 @@ export default function FilesView({ folder, scanRevision }: Props) {
     setMaxLines('');
   }
 
+  function openFile(relPath: string) {
+    navigate(`/editor/${encodeURIComponent(relPath)}`);
+  }
+
+  function handleRowKeyDown(event: React.KeyboardEvent<HTMLTableRowElement>, relPath: string) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openFile(relPath);
+  }
+
   function header(k: SortKey, label: string) {
     return (
-      <th onClick={() => { if (sortKey === k) setAsc(!asc); else { setSortKey(k); setAsc(false); } }} style={{ cursor: 'pointer' }}>
-        {label} {sortKey === k ? (asc ? '↑' : '↓') : ''}
+      <th>
+        <button className="table-sort-button" onClick={() => { if (sortKey === k) setAsc(!asc); else { setSortKey(k); setAsc(false); } }}>
+          {label} {sortKey === k ? (asc ? '↑' : '↓') : ''}
+        </button>
       </th>
     );
   }
@@ -95,13 +114,22 @@ export default function FilesView({ folder, scanRevision }: Props) {
 
   return (
     <div>
-      <h1>{t('files.title')}</h1>
-      <div className="toolbar">
+      <PageHeader
+        title={t('files.title')}
+        description={t('files.subtitle')}
+        meta={t('files.count', { shown: filtered.length.toLocaleString(locale), total: rows.length.toLocaleString(locale) })}
+      />
+      <div className="filter-panel">
+        <div className="filter-panel-header">
+          <strong>{t('common.filters')}</strong>
+          <span className="status-pill">{activeFilterLabel}</span>
+        </div>
+        <div className="toolbar filter-toolbar">
         <input
           placeholder={t('files.searchPlaceholder')}
           value={q}
           onChange={e => setQ(e.target.value)}
-          style={{ width: 280 }}
+          className="file-search-input"
         />
         <select value={languageFilter} onChange={e => setLanguageFilter(e.target.value)}>
           <option value="ALL">{t('files.allLanguages')}</option>
@@ -117,7 +145,7 @@ export default function FilesView({ folder, scanRevision }: Props) {
           placeholder={t('files.minLines')}
           value={minLines}
           onChange={e => setMinLines(e.target.value)}
-          style={{ width: 110 }}
+          className="line-filter-input"
         />
         <input
           type="number"
@@ -125,11 +153,12 @@ export default function FilesView({ folder, scanRevision }: Props) {
           placeholder={t('files.maxLines')}
           value={maxLines}
           onChange={e => setMaxLines(e.target.value)}
-          style={{ width: 110 }}
+          className="line-filter-input"
         />
-        <button onClick={clearFilters}>{t('files.clearFilters')}</button>
-        <span className="muted">{t('files.count', { shown: filtered.length.toLocaleString(locale), total: rows.length.toLocaleString(locale) })}</span>
+        <button onClick={clearFilters} disabled={activeFilterCount === 0}>{t('files.clearFilters')}</button>
+        </div>
       </div>
+      <div className="table-wrap">
       <table>
         <thead><tr>
           {header('relPath', t('common.path'))}
@@ -141,7 +170,14 @@ export default function FilesView({ folder, scanRevision }: Props) {
         </tr></thead>
         <tbody>
           {filtered.slice(0, 1000).map(f => (
-            <tr key={f.relPath} style={{ cursor: 'pointer' }} onClick={() => navigate(`/editor/${encodeURIComponent(f.relPath)}`)}>
+            <tr
+              key={f.relPath}
+              className="clickable-row"
+              role="button"
+              tabIndex={0}
+              onClick={() => openFile(f.relPath)}
+              onKeyDown={event => handleRowKeyDown(event, f.relPath)}
+            >
               <td className="mono">{f.relPath}</td>
               <td>{f.lang}</td>
               <td className="mono">{f.ext === NO_EXTENSION ? t('files.noExtension') : f.ext}</td>
@@ -152,6 +188,7 @@ export default function FilesView({ folder, scanRevision }: Props) {
           ))}
         </tbody>
       </table>
+      </div>
       {filtered.length > 1000 && <div className="muted" style={{ marginTop: 8 }}>{t('files.showingFirst', { count: filtered.length.toLocaleString(locale) })}</div>}
     </div>
   );
