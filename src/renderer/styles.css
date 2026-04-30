@@ -277,6 +277,86 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
   align-items: center;
   flex-wrap: wrap;
 }
+.workspace-folder-meta-list {
+  display: grid;
+  gap: 8px;
+}
+.workspace-folder-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.workspace-folder-meta-label {
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.workspace-folder-meta-value,
+.workspace-folder-meta-empty {
+  color: var(--muted);
+  text-align: right;
+}
+.workspace-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--info);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+.workspace-link-button:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.workspace-folder-menu {
+  position: relative;
+}
+.workspace-folder-menu summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+.workspace-folder-menu summary::-webkit-details-marker {
+  display: none;
+}
+.workspace-folder-menu[open] summary,
+.workspace-folder-menu summary:hover {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+}
+.workspace-folder-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  min-width: 148px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+.workspace-folder-menu-popover button {
+  width: 100%;
+  text-align: left;
+}
 .status-pill {
   display: inline-flex;
   align-items: center;

@@ -8,7 +8,7 @@ import { scanFolder, cancelScan } from './scanner';
 import {
   getSummary, getTree, getTopFiles, getTopFunctions, getTags, getFileTags, getDuplicates,
 } from './stats';
-import { getGitFileInfo, getGitHeatmap, clearGitCache } from './git';
+import { getGitFileInfo, getGitHeatmap, getGitRepoInfo, clearGitCache } from './git';
 import { detectLang } from './parsers/languages';
 import { countLines } from './parsers/lineParser';
 import { scanTags } from './parsers/tagScanner';
@@ -339,6 +339,12 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return await getGitFileInfo(folder.root_path, relPath);
   });
 
+  ipcMain.handle('git:repoInfo', async (_e, folderId: number) => {
+    const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
+    if (!folder) return null;
+    return await getGitRepoInfo(folder.root_path);
+  });
+
   ipcMain.handle('system:showTreeNodeContextMenu', (event, request: TreeNodeContextMenuRequest) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(request.folderId) as { root_path: string } | undefined;
     if (!folder) throw new Error('Folder not found');
@@ -384,6 +390,14 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
       x,
       y,
     });
+  });
+
+  ipcMain.handle('system:openExternal', async (_event, url: string) => {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('Only http/https URLs are allowed');
+    }
+    await shell.openExternal(parsed.toString());
   });
 
   refreshFolderWatchers();

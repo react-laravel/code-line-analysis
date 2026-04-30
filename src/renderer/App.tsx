@@ -39,7 +39,6 @@ export default function App() {
   const [globalBlackText, setGlobalBlackText] = useState(DEFAULT_BLACKLIST.join('\n'));
   const settingsDialogRef = useRef<HTMLDivElement | null>(null);
   const settingsCloseButtonRef = useRef<HTMLButtonElement | null>(null);
-  const lastCompletedScanKeyRef = useRef('');
   const navigate = useNavigate();
   const { language, languageOptions, locale, setLanguage, t } = useI18n();
 
@@ -61,9 +60,6 @@ export default function App() {
 
   useEffect(() => {
     if (progress?.phase !== 'done') return;
-    const nextKey = `${progress.folderId}:${progress.done}:${progress.total}`;
-    if (lastCompletedScanKeyRef.current === nextKey) return;
-    lastCompletedScanKeyRef.current = nextKey;
     setScanRevision(current => current + 1);
   }, [progress?.done, progress?.folderId, progress?.phase, progress?.total]);
 

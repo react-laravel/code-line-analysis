@@ -18,9 +18,14 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
   const { locale, t } = useI18n();
   const scrollStorageKey = folder ? `duplicates-scroll:${folder.id}` : '';
 
+  async function loadClusters(folderId: number): Promise<void> {
+    const nextClusters = await window.api.stats.duplicates(folderId);
+    setClusters(nextClusters);
+  }
+
   useEffect(() => {
     if (!folder) return;
-    window.api.stats.duplicates(folder.id).then(setClusters);
+    void loadClusters(folder.id);
   }, [folder?.id, scanRevision]);
 
   useEffect(() => {
@@ -38,12 +43,13 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
 
   async function applyDuplicateMinLines(nextValue: number): Promise<void> {
     if (!folder) return;
-    if (duplicateMinLinesError || parsedDuplicateMinLines === duplicateMinLines) return;
+    if (!Number.isInteger(nextValue) || nextValue < 3 || nextValue === duplicateMinLines) return;
     setApplying(true);
     try {
       await window.api.folders.setDuplicateMinLines(folder.id, nextValue);
       setDuplicateMinLines(nextValue);
       setDuplicateMinLinesText(String(nextValue));
+      await loadClusters(folder.id);
     } finally {
       setApplying(false);
     }

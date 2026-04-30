@@ -1,7 +1,8 @@
 import simpleGit from 'simple-git';
-import type { GitFileInfo, HeatmapBucket } from '../shared/api';
+import type { GitFileInfo, GitRepoInfo, HeatmapBucket } from '../shared/api';
 
-const cache = new Map<string, GitFileInfo>();
+const fileCache = new Map<string, GitFileInfo>();
+const repoCache = new Map<string, GitRepoInfo>();
 
 async function ensureGitRepo(root: string) {
   const git = simpleGit(root);
@@ -11,7 +12,7 @@ async function ensureGitRepo(root: string) {
 
 export async function getGitFileInfo(root: string, relPath: string): Promise<GitFileInfo | null> {
   const key = `${root}::${relPath}`;
-  const cached = cache.get(key);
+  const cached = fileCache.get(key);
   if (cached) return cached;
   try {
     const git = await ensureGitRepo(root);
@@ -39,7 +40,52 @@ export async function getGitFileInfo(root: string, relPath: string): Promise<Git
       lastDate: last ? new Date(last.date).getTime() : null,
       topAuthors,
     };
-    cache.set(key, info);
+    fileCache.set(key, info);
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRemoteOriginWebUrl(remoteUrl: string | null): string | null {
+  if (!remoteUrl) return null;
+
+  const trimmed = remoteUrl.trim();
+  if (!trimmed) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\.git$/i, '');
+
+  const scpMatch = trimmed.match(/^git@([^:]+):(.+)$/i);
+  if (scpMatch) return `https://${scpMatch[1]}/${scpMatch[2].replace(/\.git$/i, '')}`;
+
+  const sshMatch = trimmed.match(/^(?:ssh|git):\/\/(?:[^@]+@)?([^/]+)\/(.+)$/i);
+  if (sshMatch) return `https://${sshMatch[1]}/${sshMatch[2].replace(/\.git$/i, '')}`;
+
+  return null;
+}
+
+export async function getGitRepoInfo(root: string): Promise<GitRepoInfo | null> {
+  const cached = repoCache.get(root);
+  if (cached) return cached;
+
+  try {
+    const git = await ensureGitRepo(root);
+    if (!git) return null;
+
+    const [log, remotes] = await Promise.all([
+      git.log({ n: 1 }),
+      git.getRemotes(true),
+    ]);
+    const latest = log.latest;
+    const origin = remotes.find(remote => remote.name === 'origin');
+    const remoteOriginUrl = origin?.refs.fetch ?? origin?.refs.push ?? null;
+    const info: GitRepoInfo = {
+      lastCommitSha: latest?.hash ?? null,
+      lastCommitDate: latest ? new Date(latest.date).getTime() : null,
+      remoteOriginUrl,
+      remoteOriginWebUrl: normalizeRemoteOriginWebUrl(remoteOriginUrl),
+    };
+    repoCache.set(root, info);
     return info;
   } catch {
     return null;
@@ -93,4 +139,7 @@ export async function getGitHeatmap(root: string, days = 30): Promise<HeatmapBuc
   }
 }
 
-export function clearGitCache(): void { cache.clear(); }
+export function clearGitCache(): void {
+  fileCache.clear();
+  repoCache.clear();
+}

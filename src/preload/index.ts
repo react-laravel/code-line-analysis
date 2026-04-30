@@ -42,9 +42,11 @@ const api: Api = {
   },
   git: {
     fileInfo: (folderId, relPath) => ipcRenderer.invoke('git:fileInfo', folderId, relPath),
+    repoInfo: (folderId) => ipcRenderer.invoke('git:repoInfo', folderId),
   },
   system: {
     showTreeNodeContextMenu: (request) => ipcRenderer.invoke('system:showTreeNodeContextMenu', request),
+    openExternal: (url) => ipcRenderer.invoke('system:openExternal', url),
   },
 };
 

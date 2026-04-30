@@ -145,6 +145,13 @@ export interface GitFileInfo {
   topAuthors: Array<{ author: string; lines: number }>;
 }
 
+export interface GitRepoInfo {
+  lastCommitSha: string | null;
+  lastCommitDate: number | null;
+  remoteOriginUrl: string | null;
+  remoteOriginWebUrl: string | null;
+}
+
 export interface ScanOptions {
   full?: boolean;
   detectDuplicates?: boolean;
@@ -205,9 +212,11 @@ export interface Api {
   };
   git: {
     fileInfo: (folderId: number, relPath: string) => Promise<GitFileInfo | null>;
+    repoInfo: (folderId: number) => Promise<GitRepoInfo | null>;
   };
   system: {
     showTreeNodeContextMenu: (request: TreeNodeContextMenuRequest) => Promise<void>;
+    openExternal: (url: string) => Promise<void>;
   };
 }
 
