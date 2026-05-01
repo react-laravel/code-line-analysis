@@ -8,6 +8,13 @@ export const DEFAULT_BLACKLIST = [
   '.git',
   '*.min.js',
   '*.lock',
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  'Cargo.lock',
+  'Gemfile.lock',
+  'composer.lock',
+  'go.sum',
 ] as const;
 
 export const DEFAULT_DUPLICATE_LINES = 8;
