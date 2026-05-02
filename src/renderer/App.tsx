@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { NavLink, Routes, Route, useNavigate } from 'react-router-dom';
-import { DEFAULT_BLACKLIST, type FolderRow, type FolderRules, type ScanProgress } from '../shared/api';
+import { DEFAULT_BLACKLIST, type FolderRow, type FolderRules, type FolderStats, type ScanProgress } from '../shared/api';
 import Dashboard from './pages/Dashboard';
 import FolderManager from './pages/FolderManager';
 import TreeView from './pages/TreeView';
@@ -30,6 +30,7 @@ const analysisNavItems = [
 export default function App() {
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [activeSummary, setActiveSummary] = useState<FolderStats | null>(null);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [scanRevision, setScanRevision] = useState(0);
   const [expandedTreePathsByFolder, setExpandedTreePathsByFolder] = useState<Record<number, string[]>>({});
@@ -39,6 +40,7 @@ export default function App() {
   const [globalBlackText, setGlobalBlackText] = useState(DEFAULT_BLACKLIST.join('\n'));
   const settingsDialogRef = useRef<HTMLDivElement | null>(null);
   const settingsCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const autoScannedFolderIdsRef = useRef<Set<number>>(new Set());
   const navigate = useNavigate();
   const { language, languageOptions, locale, setLanguage, t } = useI18n();
 
@@ -57,6 +59,41 @@ export default function App() {
     const off = window.api.scan.onProgress(p => setProgress(p));
     return off;
   }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    if (activeId == null) {
+      setActiveSummary(null);
+      return () => { ignore = true; };
+    }
+
+    void window.api.stats.summary(activeId).then(summary => {
+      if (!ignore) setActiveSummary(summary);
+    }).catch(() => {
+      if (!ignore) setActiveSummary(null);
+    });
+
+    return () => { ignore = true; };
+  }, [activeId, scanRevision]);
+
+  useEffect(() => {
+    const activeFolderIds = new Set(folders.map(folder => folder.id));
+    autoScannedFolderIdsRef.current = new Set(
+      Array.from(autoScannedFolderIdsRef.current).filter(folderId => activeFolderIds.has(folderId)),
+    );
+  }, [folders]);
+
+  useEffect(() => {
+    if (activeId == null) return;
+    if (!folders.some(folder => folder.id === activeId)) return;
+    if (autoScannedFolderIdsRef.current.has(activeId)) return;
+
+    autoScannedFolderIdsRef.current.add(activeId);
+    void window.api.scan.run(activeId, { detectDuplicates: true }).catch(() => {
+      autoScannedFolderIdsRef.current.delete(activeId);
+    });
+  }, [activeId, folders]);
 
   useEffect(() => {
     if (progress?.phase !== 'done') return;
@@ -110,6 +147,9 @@ export default function App() {
   }, [settingsOpen]);
 
   const active = folders.find(f => f.id === activeId) ?? null;
+  const activeTagCount = activeSummary
+    ? Object.values(activeSummary.tagCounts).reduce((sum, count) => sum + count, 0)
+    : null;
   const activeExpandedTreePaths = activeId == null ? [] : (expandedTreePathsByFolder[activeId] ?? ['']);
   const progressLabel = progress == null ? '' : {
     walking: t('progress.walking'),
@@ -145,7 +185,10 @@ export default function App() {
     await refreshFolders();
     setActiveId(folder.id);
     navigate('/dashboard');
-    void window.api.scan.run(folder.id, { detectDuplicates: true }).catch(() => undefined);
+    autoScannedFolderIdsRef.current.add(folder.id);
+    void window.api.scan.run(folder.id, { detectDuplicates: true }).catch(() => {
+      autoScannedFolderIdsRef.current.delete(folder.id);
+    });
   }, [navigate, refreshFolders]);
 
   const handleOpenFolder = useCallback((folderId: number) => {
@@ -217,14 +260,21 @@ export default function App() {
             <section className="sidebar-section">
               <div className="section-label">{t('app.navPrimary')}</div>
               {primaryNavItems.map(item => (
-                <NavLink key={item.to} to={item.to} className={navClassName}>{t(item.labelKey)}</NavLink>
+                <NavLink key={item.to} to={item.to} className={navClassName}>
+                  <span className="nav-link-label">{t(item.labelKey)}</span>
+                </NavLink>
               ))}
             </section>
 
             <section className="sidebar-section">
               <div className="section-label">{t('app.navAnalysis')}</div>
               {analysisNavItems.map(item => (
-                <NavLink key={item.to} to={item.to} className={navClassName}>{t(item.labelKey)}</NavLink>
+                <NavLink key={item.to} to={item.to} className={navClassName}>
+                  <span className="nav-link-label">{t(item.labelKey)}</span>
+                  {item.to === '/tags' && activeTagCount != null ? (
+                    <span className="nav-link-badge">{activeTagCount.toLocaleString(locale)}</span>
+                  ) : null}
+                </NavLink>
               ))}
             </section>
           </nav>
@@ -256,7 +306,20 @@ export default function App() {
         </div>
 
         <div className="sidebar-footer">
-          <button className="settings-button" onClick={() => setSettingsOpen(true)}>{t('app.settings')}</button>
+          <button
+            type="button"
+            className="settings-button"
+            aria-label={t('app.openSettings')}
+            title={t('app.settings')}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <svg className="settings-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.48.48 0 0 0 .11-.61l-1.92-3.32a.5.5 0 0 0-.58-.22l-2.39.96a7.14 7.14 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.49.41l-.36 2.54c-.58.22-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.58.22L2.73 8.47a.48.48 0 0 0 .11.61l2.03 1.58c-.05.31-.07.63-.07.94s.02.63.07.94l-2.03 1.58a.48.48 0 0 0-.11.61l1.92 3.32c.13.22.39.31.58.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.25.41.49.41h3.8c.24 0 .44-.17.49-.41l.36-2.54c.58-.22 1.12-.54 1.63-.94l2.39.96c.19.09.45 0 .58-.22l1.92-3.32a.48.48 0 0 0-.11-.61l-2.02-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+              />
+            </svg>
+          </button>
           <div className="app-version">v{__APP_VERSION__}</div>
         </div>
       </aside>

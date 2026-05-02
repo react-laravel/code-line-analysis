@@ -15,6 +15,7 @@
   --warn: #e2b86b;
   --bad: #ff6b6b;
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  --tab-height: 38px;
 }
 
 * { box-sizing: border-box; }
@@ -109,8 +110,10 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
 .sidebar-footer {
   border-top: 1px solid var(--border);
   padding: 10px 12px;
-  display: grid;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .sidebar-section { margin-bottom: 16px; }
 .section-label {
@@ -123,15 +126,30 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
 }
 .sidebar-nav { display: grid; gap: 2px; }
 .nav-link {
-  display: block;
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tab-height);
+  padding: 0 10px;
   border-radius: 6px;
   color: var(--text);
   font-weight: 600;
 }
+.nav-link-label {
+  min-width: 0;
+}
+.nav-link-badge {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
 .nav-link.active,
 .nav-link:hover { background: var(--panel-2); text-decoration: none; }
 .nav-link.active { box-shadow: inset 3px 0 0 var(--accent); }
+.nav-link.active .nav-link-badge {
+  color: var(--text);
+}
 .sidebar .folder-item {
   display: flex;
   flex-direction: column;
@@ -152,7 +170,7 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
 }
 .sidebar-select select { width: 100%; }
 .sidebar-folder-select,
-.settings-button { width: 100%; }
+.settings-button { width: auto; }
 .folder-section { display: grid; gap: 8px; }
 .scan-panel {
   display: grid;
@@ -183,6 +201,20 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
   color: var(--subtle);
   font-size: 11px;
   font-weight: 700;
+  margin-left: auto;
+}
+.settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+}
+.settings-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .content {
@@ -247,7 +279,7 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
 
 .workspace-folder-card {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   min-height: 148px;
   width: 100%;
   padding: 16px;
@@ -265,17 +297,12 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
   font-size: 18px;
   font-weight: 700;
   overflow-wrap: anywhere;
+  padding-right: 8px;
 }
 .workspace-folder-path,
 .workspace-folder-meta {
   color: var(--muted);
   overflow-wrap: anywhere;
-}
-.workspace-folder-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
 }
 .workspace-folder-meta-list {
   display: grid;
@@ -296,7 +323,7 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
 .workspace-folder-meta-value,
 .workspace-folder-meta-empty {
   color: var(--muted);
-  text-align: right;
+  text-align: left;
 }
 .workspace-link-button {
   padding: 0;
@@ -305,13 +332,23 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
   color: var(--info);
   font-size: 12px;
   font-weight: 600;
-  text-align: right;
+  text-align: left;
 }
 .workspace-link-button:hover {
   background: transparent;
   border-color: transparent;
   color: var(--accent);
   text-decoration: underline;
+}
+.workspace-folder-link {
+  justify-content: flex-start;
+  align-self: start;
+  overflow-wrap: anywhere;
+}
+.workspace-folder-commit {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 .workspace-folder-menu {
   position: relative;
@@ -321,13 +358,13 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 38px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 2px;
+  border: 0;
   border-radius: 6px;
-  background: var(--panel-2);
-  color: var(--text);
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
   font-size: 14px;
   font-weight: 700;
@@ -337,8 +374,9 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
 }
 .workspace-folder-menu[open] summary,
 .workspace-folder-menu summary:hover {
-  background: var(--panel-3);
-  border-color: var(--border-strong);
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
 }
 .workspace-folder-menu-popover {
   position: absolute;
@@ -369,6 +407,12 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
+}
+.workspace-folder-footer {
+  align-items: flex-end;
+}
+.workspace-folder-footer button {
+  margin-left: auto;
 }
 .toolbar {
   display: flex;
@@ -561,6 +605,7 @@ tr:hover { background: var(--panel-2); }
 .muted { color: var(--muted); }
 .mono { font-family: 'Menlo', 'Monaco', monospace; }
 .tag-pill { display: inline-block; padding: 2px 6px; border-radius: 4px; background: var(--panel-2); font-size: 11px; margin-right: 4px; }
+.align-right { text-align: right; }
 .tag-file-button {
   padding: 0;
   border: 0;
@@ -692,7 +737,12 @@ tr:hover { background: var(--panel-2); }
   margin-bottom: 14px;
 }
 .settings-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 120px;
+  min-height: var(--tab-height);
+  padding: 0 14px;
 }
 .settings-tab.active {
   background: var(--panel-3);

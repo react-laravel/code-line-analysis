@@ -167,6 +167,100 @@ export function getHeatmap(folderId: number, days = 30): HeatmapBucket[] {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+type DuplicateOccurrence = { relPath: string; startLine: number; endLine: number };
+
+function duplicateSignature(occurrences: DuplicateOccurrence[]): string {
+  return occurrences.map(occurrence => occurrence.relPath).join('|');
+}
+
+function sortOccurrences(occurrences: DuplicateOccurrence[]): DuplicateOccurrence[] {
+  return [...occurrences].sort((left, right) => {
+    if (left.relPath !== right.relPath) return left.relPath.localeCompare(right.relPath);
+    if (left.startLine !== right.startLine) return left.startLine - right.startLine;
+    return left.endLine - right.endLine;
+  });
+}
+
+function clusterOrderValue(cluster: DuplicateCluster): string {
+  return cluster.occurrences
+    .map(occurrence => `${occurrence.relPath}:${String(occurrence.startLine).padStart(8, '0')}:${String(occurrence.endLine).padStart(8, '0')}`)
+    .join('|');
+}
+
+function hasStableDuplicateAlignment(current: DuplicateCluster, next: DuplicateCluster): boolean {
+  if (current.occurrences.length !== next.occurrences.length) return false;
+
+  const currentBase = current.occurrences[0];
+  const nextBase = next.occurrences[0];
+
+  for (let index = 0; index < current.occurrences.length; index++) {
+    const currentOccurrence = current.occurrences[index];
+    const nextOccurrence = next.occurrences[index];
+    if (currentOccurrence.relPath !== nextOccurrence.relPath) return false;
+
+    const currentStartOffset = currentOccurrence.startLine - currentBase.startLine;
+    const nextStartOffset = nextOccurrence.startLine - nextBase.startLine;
+    const currentEndOffset = currentOccurrence.endLine - currentBase.endLine;
+    const nextEndOffset = nextOccurrence.endLine - nextBase.endLine;
+
+    if (currentStartOffset !== nextStartOffset || currentEndOffset !== nextEndOffset) return false;
+
+    const overlaps = nextOccurrence.startLine <= currentOccurrence.endLine + 1
+      && nextOccurrence.endLine >= currentOccurrence.startLine - 1;
+    if (!overlaps) return false;
+  }
+
+  return true;
+}
+
+function mergeDuplicateClusters(current: DuplicateCluster, next: DuplicateCluster): DuplicateCluster {
+  const occurrences = current.occurrences.map((occurrence, index) => ({
+    relPath: occurrence.relPath,
+    startLine: Math.min(occurrence.startLine, next.occurrences[index].startLine),
+    endLine: Math.max(occurrence.endLine, next.occurrences[index].endLine),
+  }));
+
+  const lines = Math.max(...occurrences.map(occurrence => occurrence.endLine - occurrence.startLine + 1));
+  return {
+    hash: current.hash,
+    occurrences,
+    lines,
+  };
+}
+
+function compactDuplicateClusters(clusters: DuplicateCluster[]): DuplicateCluster[] {
+  const grouped = new Map<string, DuplicateCluster[]>();
+
+  for (const cluster of clusters) {
+    const signature = duplicateSignature(cluster.occurrences);
+    const items = grouped.get(signature) ?? [];
+    items.push(cluster);
+    grouped.set(signature, items);
+  }
+
+  const mergedClusters: DuplicateCluster[] = [];
+
+  for (const items of grouped.values()) {
+    items.sort((left, right) => clusterOrderValue(left).localeCompare(clusterOrderValue(right)));
+    let current = items[0];
+
+    for (let index = 1; index < items.length; index++) {
+      const next = items[index];
+      if (hasStableDuplicateAlignment(current, next)) {
+        current = mergeDuplicateClusters(current, next);
+        continue;
+      }
+
+      mergedClusters.push(current);
+      current = next;
+    }
+
+    mergedClusters.push(current);
+  }
+
+  return mergedClusters;
+}
+
 export function getDuplicates(folderId: number): DuplicateCluster[] {
   const db = getDb();
   const duplicateMinLines = getDuplicateMinLines(db, folderId);
@@ -186,8 +280,14 @@ export function getDuplicates(folderId: number): DuplicateCluster[] {
   const clusters: DuplicateCluster[] = [];
   for (const [hash, occurrences] of groups) {
     if (occurrences.length < 2) continue;
-    clusters.push({ hash, occurrences, lines: duplicateMinLines });
+    clusters.push({ hash, occurrences: sortOccurrences(occurrences), lines: duplicateMinLines });
   }
-  clusters.sort((a, b) => b.occurrences.length * b.lines - a.occurrences.length * a.lines);
-  return clusters.slice(0, 200);
+
+  const compactedClusters = compactDuplicateClusters(clusters);
+  compactedClusters.sort((a, b) => {
+    const scoreDiff = b.occurrences.length * b.lines - a.occurrences.length * a.lines;
+    if (scoreDiff !== 0) return scoreDiff;
+    return b.lines - a.lines;
+  });
+  return compactedClusters.slice(0, 200);
 }

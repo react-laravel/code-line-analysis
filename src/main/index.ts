@@ -6,6 +6,16 @@ import { registerIpc, disposeRegisteredIpcResources } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
 
+function resolveDevServerUrl(): string {
+  const explicitUrl = process.env.VITE_DEV_SERVER_URL?.trim();
+  if (explicitUrl) return explicitUrl;
+
+  const explicitPort = process.env.VITE_DEV_SERVER_PORT?.trim();
+  if (explicitPort) return `http://127.0.0.1:${explicitPort}`;
+
+  return 'http://127.0.0.1:5173';
+}
+
 function resolveAppIconPath(): string | undefined {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, 'icon.png')
@@ -38,7 +48,7 @@ function createWindow(): void {
   });
 
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL(resolveDevServerUrl());
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));

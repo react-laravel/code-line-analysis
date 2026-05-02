@@ -79,33 +79,8 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onOpenFo
             >
               <div className="workspace-folder-topline">
                 <span className="workspace-folder-name">{folder.name}</span>
-                {folder.id === activeId && <span className="status-pill">{t('common.active')}</span>}
-              </div>
-              <div className="workspace-folder-path">{folder.rootPath}</div>
-              <div className="workspace-folder-meta-list">
-                <div className="workspace-folder-meta-row">
-                  <span className="workspace-folder-meta-label">{t('workspace.lastCommit')}</span>
-                  <span className="workspace-folder-meta-value">{formatCommitDate(repoInfoByFolder[folder.id]?.lastCommitDate)}</span>
-                </div>
-                <div className="workspace-folder-meta-row">
-                  <span className="workspace-folder-meta-label">{t('workspace.remoteOrigin')}</span>
-                  {repoInfoByFolder[folder.id]?.remoteOriginWebUrl ? (
-                    <button
-                      type="button"
-                      className="workspace-link-button"
-                      onClick={() => void window.api.system.openExternal(repoInfoByFolder[folder.id]!.remoteOriginWebUrl!)}
-                    >
-                      {formatRemoteLabel(repoInfoByFolder[folder.id]!.remoteOriginWebUrl!)}
-                    </button>
-                  ) : (
-                    <span className="workspace-folder-meta-empty">{t('workspace.noRemoteOrigin')}</span>
-                  )}
-                </div>
-              </div>
-              <div className="workspace-folder-actions">
-                <button onClick={() => onOpenFolder(folder.id)}>{t('workspace.openFolder')}</button>
                 <details className="workspace-folder-menu">
-                  <summary aria-label={t('workspace.moreActions')}>...</summary>
+                  <summary aria-label={t('workspace.moreActions')}>•••</summary>
                   <div className="workspace-folder-menu-popover">
                     <button
                       type="button"
@@ -119,6 +94,25 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onOpenFo
                     </button>
                   </div>
                 </details>
+              </div>
+              <div className="workspace-folder-path">{folder.rootPath}</div>
+              {repoInfoByFolder[folder.id]?.remoteOriginWebUrl ? (
+                <button
+                  type="button"
+                  className="workspace-link-button workspace-folder-link"
+                  onClick={() => void window.api.system.openExternal(repoInfoByFolder[folder.id]!.remoteOriginWebUrl!)}
+                >
+                  {formatRemoteLabel(repoInfoByFolder[folder.id]!.remoteOriginWebUrl!)}
+                </button>
+              ) : (
+                <span className="workspace-folder-meta-empty">{t('workspace.noRemoteOrigin')}</span>
+              )}
+              <div className="workspace-folder-footer">
+                <div className="workspace-folder-commit">
+                  <span className="workspace-folder-meta-label">{t('workspace.lastCommit')}</span>
+                  <span className="workspace-folder-meta-value">{formatCommitDate(repoInfoByFolder[folder.id]?.lastCommitDate)}</span>
+                </div>
+                <button onClick={() => onOpenFolder(folder.id)}>{t('workspace.openFolder')}</button>
               </div>
             </article>
           ))}
