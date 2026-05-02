@@ -545,46 +545,15 @@ tr:hover { background: var(--panel-2); }
   display: grid;
   gap: 14px;
 }
-.tree-control-panel {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  align-items: start;
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
-}
-.tree-control-group {
-  display: grid;
-  gap: 6px;
-  align-content: start;
-}
-.tree-control-label {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-.tree-action-strip { justify-content: flex-start; }
-.tree-custom-level-row {
+.tree-bottom-actions {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-}
-.tree-level-input {
-  width: 112px;
-}
-.tree-control-note {
-  color: var(--muted);
-  font-size: 12px;
-}
-.tree-control-note.error {
-  color: var(--bad);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
 }
 
 .tree-node { font-family: 'Menlo', 'Monaco', monospace; font-size: 12px; }

@@ -137,7 +137,6 @@ function pathsForLevel(node: DirNode, targetDepth: number): string[] {
 export default function TreeView({ folder, scanRevision, expandedPaths, onTogglePath, onReplaceExpandedPaths }: Props) {
   const [tree, setTree] = useState<DirNode | null>(null);
   const [loading, setLoading] = useState(false);
-  const [customLevel, setCustomLevel] = useState('');
   const navigate = useNavigate();
   const { t } = useI18n();
 
@@ -148,16 +147,10 @@ export default function TreeView({ folder, scanRevision, expandedPaths, onToggle
   }, [expandedPaths]);
 
   const treeDirectories = useMemo(() => tree ? collectDirectoryPaths(tree) : { allPaths: [], maxDepth: 0 }, [tree]);
-  const allExpanded = treeDirectories.allPaths.length > 0 && treeDirectories.allPaths.every(path => expandedPathSet.has(path));
-
-  const parsedLevel = customLevel.trim() === '' ? null : Number(customLevel);
-  const customLevelError = parsedLevel == null
-    ? null
-    : (!Number.isInteger(parsedLevel) || parsedLevel < 1
-      ? t('tree.invalidLevelMin')
-      : parsedLevel > treeDirectories.maxDepth
-        ? t('tree.invalidLevelMax', { count: treeDirectories.maxDepth })
-        : null);
+  const visibleLevels = useMemo(
+    () => [1, 2, 3].filter(level => treeDirectories.maxDepth >= level),
+    [treeDirectories.maxDepth],
+  );
 
   useEffect(() => {
     const folderId = folder?.id;
@@ -192,18 +185,13 @@ export default function TreeView({ folder, scanRevision, expandedPaths, onToggle
     onReplaceExpandedPaths(folder.id, paths);
   }
 
-  function handleToggleAll(): void {
-    replaceExpandedPaths(allExpanded ? [] : treeDirectories.allPaths);
+  function handleExpandAll(): void {
+    replaceExpandedPaths(treeDirectories.allPaths);
   }
 
   function handleExpandLevel(level: number): void {
     if (!tree) return;
     replaceExpandedPaths(pathsForLevel(tree, level));
-  }
-
-  function handleApplyCustomLevel(): void {
-    if (!tree || parsedLevel == null || customLevelError) return;
-    handleExpandLevel(parsedLevel);
   }
 
   if (!folder) return <div className="empty">{t('common.selectFolder')}</div>;
@@ -216,46 +204,6 @@ export default function TreeView({ folder, scanRevision, expandedPaths, onToggle
         title={t('tree.title')}
         description={t('tree.subtitle', { count: treeDirectories.maxDepth.toLocaleString() })}
       />
-      <section className="tree-control-panel">
-        <div className="tree-control-group">
-          <div className="tree-control-label">{t('tree.quickActions')}</div>
-          <div className="action-strip tree-action-strip">
-            <button type="button" onClick={handleToggleAll} disabled={treeDirectories.allPaths.length === 0}>
-              {allExpanded ? t('tree.collapseAll') : t('tree.expandAll')}
-            </button>
-            {[1, 2, 3].map(level => (
-              <button
-                key={level}
-                type="button"
-                onClick={() => handleExpandLevel(level)}
-                disabled={treeDirectories.maxDepth < level}
-              >
-                {t('tree.expandLevel', { count: level })}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="tree-control-group">
-          <div className="tree-control-label">{t('tree.customLevel')}</div>
-          <div className="tree-custom-level-row">
-            <input
-              type="number"
-              min={1}
-              max={Math.max(1, treeDirectories.maxDepth)}
-              value={customLevel}
-              onChange={event => setCustomLevel(event.target.value)}
-              placeholder={treeDirectories.maxDepth > 0 ? String(treeDirectories.maxDepth) : '1'}
-              className="tree-level-input"
-            />
-            <button type="button" onClick={handleApplyCustomLevel} disabled={parsedLevel == null || Boolean(customLevelError)}>
-              {t('tree.applyLevel')}
-            </button>
-          </div>
-          <div className={customLevelError ? 'tree-control-note error' : 'tree-control-note'}>
-            {customLevelError ?? t('tree.maxDepth', { count: treeDirectories.maxDepth.toLocaleString() })}
-          </div>
-        </div>
-      </section>
       <Node
         folderId={folder.id}
         rootName={folder.name || folder.rootPath || '/'}
@@ -265,6 +213,24 @@ export default function TreeView({ folder, scanRevision, expandedPaths, onToggle
         onOpen={p => navigate(`/editor/${encodeURIComponent(p)}`)}
         onTogglePath={onTogglePath}
       />
+      <section className="tree-bottom-actions" aria-label={t('tree.quickActions')}>
+        <button type="button" onClick={handleExpandAll} disabled={treeDirectories.allPaths.length === 0}>
+          {t('tree.expandAll')}
+        </button>
+        {visibleLevels.map(level => (
+          <button
+            key={level}
+            type="button"
+            onClick={() => handleExpandLevel(level)}
+          >
+            {[
+              t('tree.levelOne'),
+              t('tree.levelTwo'),
+              t('tree.levelThree'),
+            ][level - 1]}
+          </button>
+        ))}
+      </section>
     </div>
   );
 }

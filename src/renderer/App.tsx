@@ -27,6 +27,13 @@ const analysisNavItems = [
   { to: '/duplicates', labelKey: 'nav.duplicates' },
 ] as const;
 
+function normalizeRules(value: FolderRules | null | undefined): FolderRules {
+  return {
+    whitelist: Array.isArray(value?.whitelist) ? value.whitelist : [],
+    blacklist: Array.isArray(value?.blacklist) ? value.blacklist : [],
+  };
+}
+
 export default function App() {
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -38,6 +45,9 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<'general' | 'scan'>('general');
   const [globalWhiteText, setGlobalWhiteText] = useState('');
   const [globalBlackText, setGlobalBlackText] = useState(DEFAULT_BLACKLIST.join('\n'));
+  const [globalRulesSaving, setGlobalRulesSaving] = useState(false);
+  const [globalRulesMessage, setGlobalRulesMessage] = useState('');
+  const [globalRulesError, setGlobalRulesError] = useState('');
   const settingsDialogRef = useRef<HTMLDivElement | null>(null);
   const settingsCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const autoScannedFolderIdsRef = useRef<Set<number>>(new Set());
@@ -108,8 +118,11 @@ export default function App() {
 
     void window.api.settings.getGlobalRules().then(rules => {
       if (ignore) return;
-      setGlobalWhiteText(rules.whitelist.join('\n'));
-      setGlobalBlackText(rules.blacklist.join('\n'));
+      const nextRules = normalizeRules(rules);
+      setGlobalWhiteText(nextRules.whitelist.join('\n'));
+      setGlobalBlackText(nextRules.blacklist.join('\n'));
+      setGlobalRulesMessage('');
+      setGlobalRulesError('');
     }).catch(() => undefined);
 
     settingsCloseButtonRef.current?.focus();
@@ -217,7 +230,23 @@ export default function App() {
       whitelist: globalWhiteText.split('\n').map(pattern => pattern.trim()).filter(Boolean),
       blacklist: globalBlackText.split('\n').map(pattern => pattern.trim()).filter(Boolean),
     };
-    await window.api.settings.setGlobalRules(rules);
+    setGlobalRulesSaving(true);
+    setGlobalRulesMessage('');
+    setGlobalRulesError('');
+
+    try {
+      const response = await window.api.settings.setGlobalRules(rules);
+      const nextRules = Array.isArray(response?.whitelist) && Array.isArray(response?.blacklist)
+        ? normalizeRules(response)
+        : normalizeRules(await window.api.settings.getGlobalRules().catch(() => rules));
+      setGlobalWhiteText(nextRules.whitelist.join('\n'));
+      setGlobalBlackText(nextRules.blacklist.join('\n'));
+      setGlobalRulesMessage(t('settings.saveApplied'));
+    } catch {
+      setGlobalRulesError(t('settings.saveFailed'));
+    } finally {
+      setGlobalRulesSaving(false);
+    }
   }, [globalBlackText, globalWhiteText]);
 
   const handleCancelScan = useCallback(() => {
@@ -397,7 +426,11 @@ export default function App() {
                       <textarea
                         className="settings-textarea"
                         value={globalWhiteText}
-                        onChange={e => setGlobalWhiteText(e.target.value)}
+                        onChange={e => {
+                          setGlobalWhiteText(e.target.value);
+                          setGlobalRulesMessage('');
+                          setGlobalRulesError('');
+                        }}
                         rows={8}
                         placeholder={'src/**\nlib/**'}
                       />
@@ -407,15 +440,26 @@ export default function App() {
                       <textarea
                         className="settings-textarea"
                         value={globalBlackText}
-                        onChange={e => setGlobalBlackText(e.target.value)}
+                        onChange={e => {
+                          setGlobalBlackText(e.target.value);
+                          setGlobalRulesMessage('');
+                          setGlobalRulesError('');
+                        }}
                         rows={8}
                         placeholder={DEFAULT_BLACKLIST.join('\n')}
                       />
                     </label>
                   </div>
                   <div className="settings-actions">
-                    <button className="primary" onClick={() => void handleSaveGlobalRules()}>{t('settings.saveScanSettings')}</button>
+                    <button className="primary" onClick={() => void handleSaveGlobalRules()} disabled={globalRulesSaving}>
+                      {globalRulesSaving ? t('settings.saving') : t('settings.saveScanSettings')}
+                    </button>
                   </div>
+                  {(globalRulesMessage || globalRulesError) && (
+                    <div className={globalRulesError ? 'settings-field-note error' : 'settings-field-note'}>
+                      {globalRulesError || globalRulesMessage}
+                    </div>
+                  )}
                 </>
               )}
             </div>

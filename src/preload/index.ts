@@ -10,6 +10,8 @@ const api: Api = {
     setRules: (id, rules) => ipcRenderer.invoke('folders:setRules', id, rules),
     getDuplicateMinLines: (id) => ipcRenderer.invoke('folders:getDuplicateMinLines', id),
     setDuplicateMinLines: (id, count) => ipcRenderer.invoke('folders:setDuplicateMinLines', id, count),
+    getDuplicateRules: (id) => ipcRenderer.invoke('folders:getDuplicateRules', id),
+    setDuplicateRules: (id, rules) => ipcRenderer.invoke('folders:setDuplicateRules', id, rules),
     pickDirectory: () => ipcRenderer.invoke('folders:pickDirectory'),
   },
   scan: {

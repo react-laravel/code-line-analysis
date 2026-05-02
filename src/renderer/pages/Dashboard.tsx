@@ -57,7 +57,9 @@ export default function Dashboard({ folder, progress }: Props) {
               <div className="label">{t('dashboard.totalLines')}</div>
               <div className="value">{stats.totalLines.toLocaleString(locale)}</div>
             </div>
-            <div className="card metric-card"><div className="label">{t('common.code')}</div><div className="value">{stats.totalCode.toLocaleString(locale)}</div></div>
+            <div className="card metric-card"><div className="label">{t('dashboard.totalCode')}</div><div className="value">{stats.totalCode.toLocaleString(locale)}</div></div>
+            <div className="card metric-card"><div className="label">{t('dashboard.runtimeCode')}</div><div className="value">{stats.runtimeCode.toLocaleString(locale)}</div></div>
+            <div className="card metric-card"><div className="label">{t('dashboard.testCode')}</div><div className="value">{stats.testCode.toLocaleString(locale)}</div></div>
             <div className="card metric-card"><div className="label">{t('common.comments')}</div><div className="value">{stats.totalComment.toLocaleString(locale)}</div></div>
             <div className="card metric-card"><div className="label">{t('common.blank')}</div><div className="value">{stats.totalBlank.toLocaleString(locale)}</div></div>
             <div className="card metric-card"><div className="label">{t('dashboard.blockCommentLines')}</div><div className="value">{stats.totalBlockComment.toLocaleString(locale)}</div></div>

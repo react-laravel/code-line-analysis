@@ -4,11 +4,27 @@ import type {
 } from '../shared/api';
 import { DEFAULT_DUPLICATE_LINES } from '../shared/api';
 
+const TEST_DIR_SEGMENTS = new Set(['__tests__', '__test__', 'tests', 'test', 'spec', 'specs', 'e2e', 'cypress']);
+const TEST_FILE_PATTERNS = [
+  /\.(?:test|spec)\.[^/.]+$/i,
+  /[_-](?:test|spec)\.[^/.]+$/i,
+  /[A-Z][A-Za-z0-9]*(?:Test|Tests|Spec|Specs)\.[^/.]+$/,
+];
+
 function getDuplicateMinLines(db: ReturnType<typeof getDb>, folderId: number): number {
   const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(`duplicateMinLines:${folderId}`) as { value: string } | undefined;
   if (!row) return DEFAULT_DUPLICATE_LINES;
   const parsed = Number(row.value);
   return Number.isInteger(parsed) && parsed >= 3 ? parsed : DEFAULT_DUPLICATE_LINES;
+}
+
+function isTestFilePath(relPath: string): boolean {
+  const normalized = relPath.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+  const fileName = segments[segments.length - 1] ?? normalized;
+
+  if (segments.slice(0, -1).some(segment => TEST_DIR_SEGMENTS.has(segment.toLowerCase()))) return true;
+  return TEST_FILE_PATTERNS.some(pattern => pattern.test(fileName));
 }
 
 export function getSummary(folderId: number): FolderStats {
@@ -19,6 +35,18 @@ export function getSummary(folderId: number): FolderStats {
            COALESCE(SUM(blank),0) AS blank, COALESCE(SUM(block_comment),0) AS blockComment
     FROM files WHERE folder_id = ? AND deleted = 0
   `).get(folderId) as { files: number; total: number; code: number; comment: number; blank: number; blockComment: number };
+
+  const codeRows = db.prepare(`
+    SELECT rel_path AS relPath, code
+    FROM files WHERE folder_id = ? AND deleted = 0
+  `).all(folderId) as Array<{ relPath: string; code: number }>;
+
+  let testCode = 0;
+  for (const row of codeRows) {
+    if (isTestFilePath(row.relPath)) testCode += row.code;
+  }
+
+  const runtimeCode = Math.max(0, totals.code - testCode);
 
   const byLang = db.prepare(`
     SELECT lang, COUNT(*) AS files, SUM(total) AS total, SUM(code) AS code,
@@ -40,6 +68,8 @@ export function getSummary(folderId: number): FolderStats {
     totalFiles: totals.files,
     totalLines: totals.total,
     totalCode: totals.code,
+    runtimeCode,
+    testCode,
     totalComment: totals.comment,
     totalBlank: totals.blank,
     totalBlockComment: totals.blockComment,

@@ -83,6 +83,8 @@ export interface FolderStats {
   totalFiles: number;
   totalLines: number;
   totalCode: number;
+  runtimeCode: number;
+  testCode: number;
   totalComment: number;
   totalBlank: number;
   totalBlockComment: number;
@@ -163,6 +165,7 @@ export interface ScanOptions {
   full?: boolean;
   detectDuplicates?: boolean;
   duplicateMinLines?: number;
+  duplicateRules?: FolderRules;
 }
 
 export interface TreeNodeContextMenuLabels {
@@ -188,9 +191,11 @@ export interface Api {
     list: () => Promise<FolderRow[]>;
     remove: (id: number) => Promise<void>;
     getRules: (id: number) => Promise<FolderRules>;
-    setRules: (id: number, rules: FolderRules) => Promise<void>;
+    setRules: (id: number, rules: FolderRules) => Promise<FolderRules>;
     getDuplicateMinLines: (id: number) => Promise<number>;
     setDuplicateMinLines: (id: number, count: number) => Promise<void>;
+    getDuplicateRules: (id: number) => Promise<FolderRules>;
+    setDuplicateRules: (id: number, rules: FolderRules) => Promise<FolderRules>;
     pickDirectory: () => Promise<string | null>;
   };
   scan: {
@@ -200,7 +205,7 @@ export interface Api {
   };
   settings: {
     getGlobalRules: () => Promise<FolderRules>;
-    setGlobalRules: (rules: FolderRules) => Promise<void>;
+    setGlobalRules: (rules: FolderRules) => Promise<FolderRules>;
   };
   stats: {
     summary: (folderId: number) => Promise<FolderStats>;

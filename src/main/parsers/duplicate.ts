@@ -22,6 +22,27 @@ function stripJsxTags(line: string): string {
     .replace(/<\/?[A-Za-z][\w.:\-]*(?:\s+[^<>]*)?\/?\s*>/g, '');
 }
 
+function isCommentLine(line: string): boolean {
+  return /^(?:\/\/|\/\*|\*\/|\*|#)/.test(line);
+}
+
+function isImportOrDeclarationLine(line: string): boolean {
+  return /^(?:import|export\s+import|use|namespace|require(?:_once)?|include(?:_once)?)\b/i.test(line)
+    || /^(?:export\s+)?(?:abstract\s+|final\s+)?(?:class|interface|trait|enum|record|module)\b/i.test(line);
+}
+
+function isCallableDeclarationLine(line: string): boolean {
+  if (/\bfunction\b/.test(line)) return true;
+  if (/^(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^;=]*\)\s*\{$/.test(line) && !/^(?:if|for|while|switch|catch|foreach)\b/.test(line)) {
+    return true;
+  }
+  return /^(?:(?:public|protected|private|internal|static|final|abstract|async|override|virtual|sealed|readonly)\s+)+[A-Za-z_$][\w$<>\[\]?|:&\\]*\s+[A-Za-z_$][\w$]*\s*\([^;=]*\)\s*(?::\s*[A-Za-z_$][\w$<>\[\]?|:&\\]*)?\s*\{?$/.test(line);
+}
+
+function isBoundaryLine(line: string): boolean {
+  return line === '' || isCommentLine(line) || isImportOrDeclarationLine(line) || isCallableDeclarationLine(line);
+}
+
 function isStructuralLine(line: string): boolean {
   if (line === '') return true;
   if (/^[{}()[\];,]+$/.test(line)) return true;
@@ -32,26 +53,51 @@ function isStructuralLine(line: string): boolean {
 }
 
 function isSubstantiveLine(line: string): boolean {
-  return line !== '' && !isStructuralLine(line);
+  return line !== ''
+    && !isStructuralLine(line)
+    && !isCommentLine(line)
+    && !isImportOrDeclarationLine(line)
+    && !isCallableDeclarationLine(line);
 }
 
 export function findDuplicateSlices(content: string, windowSize = DEFAULT_DUPLICATE_LINES): DupSlice[] {
   const normalizedWindowSize = Math.max(3, Math.floor(windowSize));
   const lines = content.split(/\r\n|\n|\r/).map(normalize);
-  const substantiveLineIndexes = lines
-    .map((line, index) => (isSubstantiveLine(line) ? index : -1))
-    .filter(index => index >= 0);
-  if (substantiveLineIndexes.length < normalizedWindowSize) return [];
-  const out: DupSlice[] = [];
-  for (let i = 0; i + normalizedWindowSize <= substantiveLineIndexes.length; i++) {
-    const windowIndexes = substantiveLineIndexes.slice(i, i + normalizedWindowSize);
-    const startIndex = windowIndexes[0];
-    const endIndex = windowIndexes[windowIndexes.length - 1];
-    const slice = lines.slice(startIndex, endIndex + 1);
-    const substantiveSlice = slice.filter(isSubstantiveLine);
-    if (substantiveSlice.length < Math.max(MIN_SUBSTANTIVE_LINES, normalizedWindowSize)) continue;
-    const h = createHash('sha1').update(substantiveSlice.join('\n')).digest('hex').slice(0, 16);
-    out.push({ hash: h, startLine: startIndex + 1, endLine: endIndex + 1 });
+
+  const segments: number[][] = [];
+  let currentSegment: number[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+
+    if (isBoundaryLine(line)) {
+      if (currentSegment.length > 0) {
+        segments.push(currentSegment);
+        currentSegment = [];
+      }
+      continue;
+    }
+
+    if (isSubstantiveLine(line)) currentSegment.push(index);
   }
+
+  if (currentSegment.length > 0) segments.push(currentSegment);
+
+  const out: DupSlice[] = [];
+
+  for (const segment of segments) {
+    if (segment.length < normalizedWindowSize) continue;
+
+    for (let i = 0; i + normalizedWindowSize <= segment.length; i++) {
+      const windowIndexes = segment.slice(i, i + normalizedWindowSize);
+      const startIndex = windowIndexes[0];
+      const endIndex = windowIndexes[windowIndexes.length - 1];
+      const substantiveSlice = windowIndexes.map(index => lines[index]);
+      if (substantiveSlice.length < Math.max(MIN_SUBSTANTIVE_LINES, normalizedWindowSize)) continue;
+      const h = createHash('sha1').update(substantiveSlice.join('\n')).digest('hex').slice(0, 16);
+      out.push({ hash: h, startLine: startIndex + 1, endLine: endIndex + 1 });
+    }
+  }
+
   return out;
 }

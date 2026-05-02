@@ -24,6 +24,10 @@ function duplicateMinLinesKey(folderId: number): string {
   return `duplicateMinLines:${folderId}`;
 }
 
+function duplicateRulesKey(folderId: number): string {
+  return `duplicateRules:${folderId}`;
+}
+
 function rowToFolder(r: any): FolderRow {
   return { id: r.id, rootPath: r.root_path, name: r.name, createdAt: r.created_at };
 }
@@ -97,6 +101,30 @@ function setDuplicateMinLines(db: ReturnType<typeof getDb>, folderId: number, co
   `).run(duplicateMinLinesKey(folderId), String(normalized));
 }
 
+function getDuplicateRules(db: ReturnType<typeof getDb>, folderId: number): FolderRules {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(duplicateRulesKey(folderId)) as { value: string } | undefined;
+  if (!row) return { whitelist: [], blacklist: [] };
+
+  try {
+    const parsed = JSON.parse(row.value) as Partial<FolderRules>;
+    return normalizeRules({
+      whitelist: Array.isArray(parsed.whitelist) ? parsed.whitelist : [],
+      blacklist: Array.isArray(parsed.blacklist) ? parsed.blacklist : [],
+    });
+  } catch {
+    return { whitelist: [], blacklist: [] };
+  }
+}
+
+function setDuplicateRules(db: ReturnType<typeof getDb>, folderId: number, rules: FolderRules): void {
+  const normalized = normalizeRules(rules);
+  db.prepare(`
+    INSERT INTO app_settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(duplicateRulesKey(folderId), JSON.stringify(normalized));
+}
+
 function resolveRules(globalRules: FolderRules, folderRules: FolderRules): FolderRules {
   return {
     whitelist: folderRules.whitelist.length > 0 ? folderRules.whitelist : globalRules.whitelist,
@@ -141,7 +169,11 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     const folder = db.prepare('SELECT * FROM folders WHERE id = ?').get(folderId) as any;
     if (!folder) throw new Error('Folder not found');
     const rules = resolveRules(getGlobalRules(db), getFolderRules(db, folderId));
-    await scanFolder(folderId, folder.root_path, rules, { ...opts, duplicateMinLines: getDuplicateMinLines(db, folderId) }, p => {
+    await scanFolder(folderId, folder.root_path, rules, {
+      ...opts,
+      duplicateMinLines: getDuplicateMinLines(db, folderId),
+      duplicateRules: getDuplicateRules(db, folderId),
+    }, p => {
       const win = getMainWindow();
       win?.webContents.send('scan:progress', p);
     });
@@ -226,6 +258,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     stopFolderWatcher(id);
     db.prepare('DELETE FROM folders WHERE id = ?').run(id);
     db.prepare('DELETE FROM app_settings WHERE key = ?').run(duplicateMinLinesKey(id));
+    db.prepare('DELETE FROM app_settings WHERE key = ?').run(duplicateRulesKey(id));
   });
 
   ipcMain.handle('folders:getRules', (_e, id: number): FolderRules => {
@@ -234,12 +267,21 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle('folders:getDuplicateMinLines', (_e, id: number): number => getDuplicateMinLines(db, id));
 
+  ipcMain.handle('folders:getDuplicateRules', (_e, id: number): FolderRules => getDuplicateRules(db, id));
+
   ipcMain.handle('folders:setDuplicateMinLines', async (_e, id: number, count: number) => {
     setDuplicateMinLines(db, id, count);
     await enqueueFolderScan(id, { detectDuplicates: true });
   });
 
-  ipcMain.handle('folders:setRules', (_e, id: number, rules: FolderRules) => {
+  ipcMain.handle('folders:setDuplicateRules', async (_e, id: number, rules: FolderRules): Promise<FolderRules> => {
+    setDuplicateRules(db, id, rules);
+    const normalized = getDuplicateRules(db, id);
+    void enqueueFolderScan(id, { detectDuplicates: true }).catch(() => undefined);
+    return normalized;
+  });
+
+  ipcMain.handle('folders:setRules', async (_e, id: number, rules: FolderRules): Promise<FolderRules> => {
     const tx = db.transaction((id: number, rules: FolderRules) => {
       db.prepare('DELETE FROM rules WHERE folder_id = ?').run(id);
       const ins = db.prepare('INSERT INTO rules (folder_id, type, pattern) VALUES (?, ?, ?)');
@@ -248,12 +290,24 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
       for (const p of normalized.blacklist) ins.run(id, 'blacklist', p);
     });
     tx(id, rules);
+
+    const normalized = getFolderRules(db, id);
+    void enqueueFolderScan(id, { detectDuplicates: true }).catch(() => undefined);
+    return normalized;
   });
 
   ipcMain.handle('settings:getGlobalRules', (): FolderRules => getGlobalRules(db));
 
-  ipcMain.handle('settings:setGlobalRules', (_e, rules: FolderRules) => {
+  ipcMain.handle('settings:setGlobalRules', async (_e, rules: FolderRules): Promise<FolderRules> => {
     setGlobalRules(db, rules);
+
+    const normalized = getGlobalRules(db);
+    const folderRows = db.prepare('SELECT id FROM folders').all() as Array<{ id: number }>;
+    for (const folder of folderRows) {
+      void enqueueFolderScan(folder.id, { detectDuplicates: true }).catch(() => undefined);
+    }
+
+    return normalized;
   });
 
   ipcMain.handle('folders:pickDirectory', async () => {

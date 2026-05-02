@@ -48,6 +48,22 @@ async function refreshDuplicateSlices(abs: string, size: number, duplicateMinLin
   return findDuplicateSlices(buf.toString('utf-8'), duplicateMinLines);
 }
 
+function hasActiveDuplicateRules(rules: FolderRules | undefined): rules is FolderRules {
+  return Boolean(rules && (rules.whitelist.length > 0 || rules.blacklist.length > 0));
+}
+
+async function resolveDuplicateEligiblePaths(root: string, relPaths: string[], rules: FolderRules | undefined): Promise<Set<string> | null> {
+  if (!hasActiveDuplicateRules(rules)) return null;
+
+  const duplicateRulePaths = await walkFolder({
+    root,
+    whitelist: rules.whitelist,
+    blacklist: rules.blacklist,
+  });
+  const allowed = new Set(duplicateRulePaths);
+  return new Set(relPaths.filter(relPath => allowed.has(relPath)));
+}
+
 export async function scanFolder(
   folderId: number,
   root: string,
@@ -61,6 +77,9 @@ export async function scanFolder(
 
   onProgress({ folderId, phase: 'walking', total: 0, done: 0 });
   const relPaths = await walkFolder({ root, whitelist: rules.whitelist, blacklist: rules.blacklist });
+  const duplicateEligiblePaths = opts.detectDuplicates
+    ? await resolveDuplicateEligiblePaths(root, relPaths, opts.duplicateRules)
+    : null;
   const total = relPaths.length;
   onProgress({ folderId, phase: 'parsing', total, done: 0 });
 
@@ -83,6 +102,10 @@ export async function scanFolder(
     try { stat = await fs.stat(abs); } catch { done++; return; }
     if (!stat.isFile()) { done++; return; }
 
+    const duplicateAllowed = !opts.detectDuplicates
+      || duplicateEligiblePaths == null
+      || duplicateEligiblePaths.has(rel);
+
     const { ext, lang, langId } = detectLang(rel);
     const sizeNum = stat.size;
     const mtimeNum = Math.floor(stat.mtimeMs);
@@ -95,7 +118,9 @@ export async function scanFolder(
 
     // Quick cache hit on size+mtime — skip hashing.
     if (!opts.full && existing && existing.lang !== 'Binary' && existing.size === sizeNum && existing.mtime === mtimeNum) {
-      const duplicates = opts.detectDuplicates ? await refreshDuplicateSlices(abs, sizeNum, duplicateMinLines) : null;
+      const duplicates = opts.detectDuplicates
+        ? (duplicateAllowed ? await refreshDuplicateSlices(abs, sizeNum, duplicateMinLines) : [])
+        : null;
       cacheHits++;
       parsed.push({
         relPath: rel, ext: existing.ext, lang: existing.lang,
@@ -123,7 +148,9 @@ export async function scanFolder(
     const hash = await hashContent(buf);
 
     if (!opts.full && existing && existing.lang !== 'Binary' && existing.hash === hash && existing.size === sizeNum) {
-      const duplicates = opts.detectDuplicates && sizeNum <= 5 * 1024 * 1024 ? findDuplicateSlices(buf.toString('utf-8'), duplicateMinLines) : [];
+      const duplicates = opts.detectDuplicates && duplicateAllowed && sizeNum <= 5 * 1024 * 1024
+        ? findDuplicateSlices(buf.toString('utf-8'), duplicateMinLines)
+        : [];
       cacheHits++;
       parsed.push({
         relPath: rel, ext: existing.ext, lang: existing.lang,
@@ -159,7 +186,7 @@ export async function scanFolder(
     const counts = countLines(content, lang);
     const tags = scanTags(content, lang);
     const functions = findFunctions(content, ext);
-    const duplicates = opts.detectDuplicates ? findDuplicateSlices(content, duplicateMinLines) : [];
+    const duplicates = opts.detectDuplicates && duplicateAllowed ? findDuplicateSlices(content, duplicateMinLines) : [];
 
     parsed.push({
       relPath: rel, ext, lang: langId,
