@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import type { EChartsOption } from 'echarts';
 import type { FolderRow, HeatmapBucket } from '../../shared/api';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import EChartsPanel from '../components/EChartsPanel';
 import { useI18n } from '../i18n';
 import PageHeader from '../components/PageHeader';
 
@@ -11,8 +12,10 @@ interface Props {
 }
 type SortKey = 'date' | 'files' | 'lines';
 
-const TOOLTIP_STYLE = { background: '#161b22', border: '1px solid #2a313c', color: '#e6edf3' };
-const TOOLTIP_TEXT_STYLE = { color: '#e6edf3' };
+const CHART_TEXT = '#e6edf3';
+const CHART_MUTED = '#8b949e';
+const CHART_BORDER = '#2a313c';
+const CHART_TOOLTIP_BACKGROUND = '#161b22';
 
 export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
   const [days, setDays] = useState(30);
@@ -32,6 +35,59 @@ export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
       return asc ? diff : -diff;
     });
   }, [asc, data, sortKey]);
+
+  const chartOption = useMemo<EChartsOption>(() => ({
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: CHART_TOOLTIP_BACKGROUND,
+      borderColor: CHART_BORDER,
+      textStyle: { color: CHART_TEXT },
+      formatter: params => {
+        const point = Array.isArray(params) ? params[0] : params;
+        const lines = point && typeof point.data === 'object' && point.data && 'lines' in point.data
+          ? Number(point.data.lines)
+          : 0;
+        return [
+          point?.axisValueLabel ?? '',
+          `${t('heatmap.filesChanged')}: ${Number(point?.value ?? 0).toLocaleString(locale)}`,
+          `${t('heatmap.totalLinesSinceDate')}: ${lines.toLocaleString(locale)}`,
+        ].join('<br/>');
+      },
+    },
+    grid: {
+      top: 16,
+      right: 16,
+      bottom: sortedData.length > 10 ? 68 : 44,
+      left: 12,
+      containLabel: true,
+    },
+    xAxis: {
+      type: 'category',
+      data: sortedData.map(bucket => bucket.date),
+      axisLine: { lineStyle: { color: CHART_BORDER } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: CHART_MUTED,
+        interval: 0,
+        rotate: sortedData.length > 10 ? 38 : 0,
+      },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: CHART_MUTED },
+      splitLine: { lineStyle: { color: 'rgba(139, 148, 158, 0.18)' } },
+    },
+    series: [
+      {
+        name: t('heatmap.filesChanged'),
+        type: 'bar',
+        barMaxWidth: 32,
+        itemStyle: { color: '#58a6ff', borderRadius: [4, 4, 0, 0] },
+        data: sortedData.map(bucket => ({ value: bucket.files, lines: bucket.lines })),
+      },
+    ],
+  }), [locale, sortedData, t]);
 
   function header(nextSortKey: SortKey, label: string) {
     return (
@@ -72,14 +128,7 @@ export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
         )}
       />
       <div className="chart-box heatmap-chart-box">
-        <ResponsiveContainer>
-          <BarChart data={sortedData}>
-            <XAxis dataKey="date" stroke="#8b949e" />
-            <YAxis stroke="#8b949e" />
-            <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={TOOLTIP_TEXT_STYLE} labelStyle={TOOLTIP_TEXT_STYLE} />
-            <Bar dataKey="files" fill="#58a6ff" name={t('heatmap.filesChanged')} />
-          </BarChart>
-        </ResponsiveContainer>
+        <EChartsPanel option={chartOption} />
       </div>
       <div className="table-wrap">
         <table>

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { getDb } from './db';
 import { scanFolder, cancelScan } from './scanner';
 import {
-  getSummary, getTree, getTopFiles, getTopFunctions, getTags, getFileTags, getDuplicates,
+  getSummary, getTree, getTopFiles, getTopFunctions, getTags, getFileTags, getDuplicates, getFileRelations, getLaravelSchema, getApiRoutes,
 } from './stats';
 import { getGitFileInfo, getGitHeatmap, getGitRepoInfo, clearGitCache } from './git';
 import { detectLang } from './parsers/languages';
@@ -327,6 +327,21 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle('stats:tree', (_e, folderId: number) => getTree(folderId));
   ipcMain.handle('stats:topFiles', (_e, folderId: number, limit?: number, sortBy?: TopFileSortKey) => getTopFiles(folderId, limit, sortBy));
   ipcMain.handle('stats:topFunctions', (_e, folderId: number, limit?: number) => getTopFunctions(folderId, limit));
+  ipcMain.handle('stats:apiRoutes', async (_e, folderId: number) => {
+    const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
+    if (!folder) return { frameworks: [], routes: [], laravelRouteFiles: 0, nextRouteFiles: 0, warnings: [] };
+    return await getApiRoutes(folderId, folder.root_path);
+  });
+  ipcMain.handle('stats:fileRelations', async (_e, folderId: number) => {
+    const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
+    if (!folder) return { nodes: [], edges: [], scannedFiles: 0, connectedFiles: 0, unresolvedCount: 0 };
+    return await getFileRelations(folderId, folder.root_path);
+  });
+  ipcMain.handle('stats:laravelSchema', async (_e, folderId: number) => {
+    const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
+    if (!folder) return { isLaravel: false, detectedBy: [], tables: [], relations: [], migrationCount: 0, modelCount: 0, unresolvedModelRelations: 0, warnings: [] };
+    return await getLaravelSchema(folderId, folder.root_path);
+  });
   ipcMain.handle('stats:tags', (_e, folderId: number, kind?: string) => getTags(folderId, kind));
   ipcMain.handle('stats:fileTags', (_e, folderId: number, relPath: string) => getFileTags(folderId, relPath));
   ipcMain.handle('stats:heatmap', async (_e, folderId: number, days?: number) => {

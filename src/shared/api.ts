@@ -1,3 +1,11 @@
+import type { ApiRouteOverview } from './apiRoutes';
+import type { FileRelationGraph } from './fileRelations';
+import type { LaravelSchemaGraph } from './laravelSchema';
+
+export type { ApiRouteEntry, ApiRouteOverview } from './apiRoutes';
+export type { FileRelationEdge, FileRelationGraph, FileRelationNode } from './fileRelations';
+export type { LaravelSchemaColumn, LaravelSchemaGraph, LaravelSchemaRelation, LaravelSchemaTable } from './laravelSchema';
+
 // Shared types between main, preload, and renderer.
 
 export const DEFAULT_BLACKLIST = [
@@ -212,6 +220,9 @@ export interface Api {
     tree: (folderId: number) => Promise<DirNode>;
     topFiles: (folderId: number, limit?: number, sortBy?: TopFileSortKey) => Promise<TopFile[]>;
     topFunctions: (folderId: number, limit?: number) => Promise<TopFunction[]>;
+    apiRoutes: (folderId: number) => Promise<ApiRouteOverview>;
+    fileRelations: (folderId: number) => Promise<FileRelationGraph>;
+    laravelSchema: (folderId: number) => Promise<LaravelSchemaGraph>;
     tags: (folderId: number, kind?: string) => Promise<Array<TagRow & { relPath: string }>>;
     fileTags: (folderId: number, relPath: string) => Promise<TagRow[]>;
     heatmap: (folderId: number, days?: number) => Promise<HeatmapBucket[]>;

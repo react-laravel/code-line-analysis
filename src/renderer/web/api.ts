@@ -1,12 +1,15 @@
 import type {
   Api,
+  ApiRouteOverview,
   DirNode,
   DuplicateCluster,
   FileMeta,
+  FileRelationGraph,
   FolderRow,
   FolderRules,
   FolderStats,
   HeatmapBucket,
+  LaravelSchemaGraph,
   ScanOptions,
   ScanProgress,
   TagRow,
@@ -14,6 +17,9 @@ import type {
   TopFunction,
 } from '../../shared/api';
 import { DEFAULT_BLACKLIST, DEFAULT_DUPLICATE_LINES } from '../../shared/api';
+import { buildApiRouteOverview } from '../../shared/apiRoutes';
+import { buildFileRelationGraph } from '../../shared/fileRelations';
+import { buildLaravelSchemaGraph } from '../../shared/laravelSchema';
 import { analyzeBrowserFolder, type BrowserAnalyzedFile, type BrowserFolderAnalysis, type BrowserSourceFile } from './analyzer';
 
 const GLOBAL_RULES_STORAGE_KEY = 'code-line-analysis:web-global-rules';
@@ -144,6 +150,28 @@ function emptySummary(): FolderStats {
 
 function emptyTree(): DirNode {
   return { name: '/', path: '', isDir: true, total: 0, code: 0, comment: 0, blank: 0, files: 0, children: [] };
+}
+
+function emptyFileRelations(): FileRelationGraph {
+  return { nodes: [], edges: [], scannedFiles: 0, connectedFiles: 0, unresolvedCount: 0 };
+}
+
+function emptyApiRoutes(): ApiRouteOverview {
+  return { frameworks: [], routes: [], laravelRouteFiles: 0, nextRouteFiles: 0, warnings: [] };
+}
+
+function emptyLaravelSchema(): LaravelSchemaGraph {
+  return { isLaravel: false, detectedBy: [], tables: [], relations: [], migrationCount: 0, modelCount: 0, unresolvedModelRelations: 0, warnings: [] };
+}
+
+function filesForSharedAnalysis(folderId: number) {
+  return (folders.get(folderId)?.analysis?.files ?? []).map(file => ({
+    relPath: file.relPath,
+    lang: file.meta.lang,
+    total: file.meta.total,
+    code: file.meta.code,
+    content: file.content,
+  }));
 }
 
 function getFolderState(folderId: number): BrowserFolderState {
@@ -450,6 +478,21 @@ export function createBrowserApi(): Api {
         return sorted.slice(0, limit);
       },
       topFunctions: async (folderId, limit = 50) => (folders.get(folderId)?.analysis?.topFunctions ?? []).slice(0, limit),
+      apiRoutes: async (folderId) => {
+        const files = filesForSharedAnalysis(folderId);
+        if (files.length === 0) return emptyApiRoutes();
+        return buildApiRouteOverview(files);
+      },
+      fileRelations: async (folderId) => {
+        const files = filesForSharedAnalysis(folderId);
+        if (files.length === 0) return emptyFileRelations();
+        return buildFileRelationGraph(files);
+      },
+      laravelSchema: async (folderId) => {
+        const files = filesForSharedAnalysis(folderId);
+        if (files.length === 0) return emptyLaravelSchema();
+        return buildLaravelSchemaGraph(files);
+      },
       tags: async (folderId, kind) => {
         const tags = folders.get(folderId)?.analysis?.tags ?? [];
         return kind ? tags.filter(tag => tag.kind === kind) : tags;

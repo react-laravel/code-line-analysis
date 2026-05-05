@@ -1,8 +1,16 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import pLimit from 'p-limit';
 import { getDb } from './db';
 import type {
-  FolderStats, DirNode, TopFile, TopFunction, TagRow, HeatmapBucket, DuplicateCluster, TopFileSortKey,
+  FolderStats, DirNode, TopFile, TopFunction, TagRow, HeatmapBucket, DuplicateCluster, TopFileSortKey, FileRelationGraph, LaravelSchemaGraph, ApiRouteOverview,
 } from '../shared/api';
 import { DEFAULT_DUPLICATE_LINES } from '../shared/api';
+import { buildApiRouteOverview } from '../shared/apiRoutes';
+import { buildFileRelationGraph } from '../shared/fileRelations';
+import { buildLaravelSchemaGraph } from '../shared/laravelSchema';
+
+type SourceFileForAnalysis = { relPath: string; lang: string; total: number; code: number; content: string };
 
 const TEST_DIR_SEGMENTS = new Set(['__tests__', '__test__', 'tests', 'test', 'spec', 'specs', 'e2e', 'cypress']);
 const TEST_FILE_PATTERNS = [
@@ -146,6 +154,39 @@ export function getTopFunctions(folderId: number, limit = 50): TopFunction[] {
     WHERE files.folder_id = ? AND files.deleted = 0
     ORDER BY functions.length DESC LIMIT ?
   `).all(folderId, limit) as TopFunction[];
+}
+
+async function loadSourceFilesForAnalysis(folderId: number, rootPath: string): Promise<SourceFileForAnalysis[]> {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT rel_path AS relPath, lang, total, code
+    FROM files WHERE folder_id = ? AND deleted = 0
+  `).all(folderId) as Array<{ relPath: string; lang: string; total: number; code: number }>;
+  const loadFile = pLimit(24);
+  return (await Promise.all(rows.map(row => loadFile(async () => {
+    try {
+      const content = await fs.readFile(path.resolve(rootPath, row.relPath), 'utf-8');
+      return { ...row, content };
+    } catch {
+      return null;
+    }
+  })))).filter((row): row is SourceFileForAnalysis => row != null);
+}
+
+export async function getFileRelations(folderId: number, rootPath: string): Promise<FileRelationGraph> {
+  const files = await loadSourceFilesForAnalysis(folderId, rootPath);
+
+  return buildFileRelationGraph(files);
+}
+
+export async function getApiRoutes(folderId: number, rootPath: string): Promise<ApiRouteOverview> {
+  const files = await loadSourceFilesForAnalysis(folderId, rootPath);
+  return buildApiRouteOverview(files);
+}
+
+export async function getLaravelSchema(folderId: number, rootPath: string): Promise<LaravelSchemaGraph> {
+  const files = await loadSourceFilesForAnalysis(folderId, rootPath);
+  return buildLaravelSchemaGraph(files);
 }
 
 export function getTags(folderId: number, kind?: string): Array<TagRow & { relPath: string }> {

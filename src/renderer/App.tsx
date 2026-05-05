@@ -9,6 +9,9 @@ import TagsView from './pages/TagsView';
 import TopView from './pages/TopView';
 import HeatmapView from './pages/HeatmapView';
 import DuplicatesView from './pages/DuplicatesView';
+import RelationsView from './pages/RelationsView';
+import ApiRoutesView from './pages/ApiRoutesView';
+import LaravelSchemaView from './pages/LaravelSchemaView';
 import EditorView from './pages/EditorView';
 import WorkspaceView from './pages/WorkspaceView';
 import { useI18n, type Language } from './i18n';
@@ -24,6 +27,9 @@ const analysisNavItems = [
   { to: '/files', labelKey: 'nav.files' },
   { to: '/top', labelKey: 'nav.top' },
   { to: '/heatmap', labelKey: 'nav.heatmap' },
+  { to: '/api-routes', labelKey: 'nav.apiRoutes' },
+  { to: '/relations', labelKey: 'nav.relations' },
+  { to: '/laravel-schema', labelKey: 'nav.laravelSchema' },
   { to: '/tags', labelKey: 'nav.tags' },
   { to: '/duplicates', labelKey: 'nav.duplicates' },
 ] as const;
@@ -403,6 +409,9 @@ export default function App() {
           <Route path="/tags" element={<TagsView folder={active} scanRevision={scanRevision} />} />
           <Route path="/top" element={<TopView folder={active} scanRevision={scanRevision} />} />
           <Route path="/heatmap" element={<HeatmapView folder={active} scanRevision={scanRevision} webMode={webMode} />} />
+          <Route path="/api-routes" element={<ApiRoutesView folder={active} scanRevision={scanRevision} />} />
+          <Route path="/relations" element={<RelationsView folder={active} scanRevision={scanRevision} />} />
+          <Route path="/laravel-schema" element={<LaravelSchemaView folder={active} scanRevision={scanRevision} />} />
           <Route path="/duplicates" element={<DuplicatesView folder={active} scanRevision={scanRevision} />} />
           <Route path="/editor/:relPath" element={<EditorView folder={active} scanRevision={scanRevision} />} />
         </Routes>
