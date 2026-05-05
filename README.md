@@ -2,11 +2,12 @@
 
 [简体中文](README.zh-CN.md)
 
-Code Line Analysis is an Electron desktop app for scanning local repositories, storing metrics in a local SQLite database, and browsing the results through a React-based desktop UI.
+Code Line Analysis is an Electron desktop app and deployable static web app for scanning local repositories, storing metrics in a local SQLite database on desktop, and browsing results through a React UI.
 
 ## Highlights
 
 - Analyze multiple folders in one workspace.
+- Drag a folder into the web build and analyze it locally in the browser.
 - Scan folders with live progress updates.
 - Count total, code, comment, blank, and block-comment lines.
 - Browse results through dashboard, tree, files, tags, top, heatmap, and duplicate-code views.
@@ -60,15 +61,29 @@ npm run rebuild
 ## Build and Package
 
 ```bash
+npm run build:web
 npm run build
 npm run dist
 npm run dist:signed
 ```
 
+- `npm run build:web` creates the static web build in `dist/renderer`.
 - `npm run build` builds the renderer and the Electron main process.
 - `npm run dist` creates unsigned desktop artifacts.
 - `npm run dist:signed` uses Electron Builder's default signing behavior.
 - Packaged output is written to the `release/` directory.
+
+## Web Deployment
+
+The renderer can now be deployed as a static site. Build it with:
+
+```bash
+npm run build:web
+```
+
+Then publish the contents of `dist/renderer` to any static host such as Nginx, GitHub Pages, Vercel, or Netlify. The app uses `HashRouter`, so no SPA rewrite rule is required.
+
+See [WEB_DEPLOY.md](WEB_DEPLOY.md) for deployment steps, browser requirements, and web-mode limitations.
 
 ## Usage
 

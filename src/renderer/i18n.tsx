@@ -111,6 +111,7 @@ const en = {
   'heatmap.subtitle': 'Buckets are aggregated from Git history, not file mtimes.',
   'heatmap.title': 'Recent Activity (Git)',
   'heatmap.totalLinesSinceDate': 'Changed Lines',
+  'heatmap.webSubtitle': 'Buckets are aggregated from imported file modification times in browser mode.',
   'heatmap.window': 'Window:',
   'language.english': 'English',
   'language.simplifiedChinese': 'Simplified Chinese',
@@ -185,10 +186,17 @@ const en = {
   'workspace.moreActions': 'More Actions',
   'workspace.noCommits': 'No commits yet',
   'workspace.noRemoteOrigin': 'No remote origin',
+  'workspace.importFailed': 'Unable to import the folder. Try a Chromium-based browser or use the picker button.',
+  'workspace.importing': 'Importing...',
   'workspace.openFolder': 'Open',
   'workspace.remoteOrigin': '远程仓库',
   'workspace.subtitle': 'Pick a folder to view its dashboard, or add another project here.',
   'workspace.title': 'Workspace',
+  'workspace.webDropDescription': 'Drop a local folder here to analyze it directly in the browser with the same dashboard and drill-down views.',
+  'workspace.webDropNote': 'Browser mode keeps analysis local to this tab. Git metadata, native context menus, and persistent file writes are unavailable.',
+  'workspace.webDropTitle': 'Drop a folder to start analyzing',
+  'workspace.webMode': 'Web Mode',
+  'workspace.webPickFolder': 'Choose Folder',
 } as const;
 
 type TranslationKey = keyof typeof en;
@@ -300,6 +308,7 @@ const zhCN: Record<TranslationKey, string> = {
   'heatmap.subtitle': '按 Git 历史聚合最近活动，不再依赖文件修改时间。',
   'heatmap.title': '近期活动（Git）',
   'heatmap.totalLinesSinceDate': '变更行数',
+  'heatmap.webSubtitle': '网页模式下会按导入文件的修改时间聚合最近活动。',
   'heatmap.window': '窗口：',
   'language.english': '英语',
   'language.simplifiedChinese': '简体中文',
@@ -374,10 +383,17 @@ const zhCN: Record<TranslationKey, string> = {
   'workspace.moreActions': '更多操作',
   'workspace.noCommits': '暂无提交记录',
   'workspace.noRemoteOrigin': '暂无 remote origin',
+  'workspace.importFailed': '导入文件夹失败。请尝试使用 Chromium 内核浏览器，或改用文件夹选择按钮。',
+  'workspace.importing': '导入中...',
   'workspace.openFolder': '打开',
   'workspace.remoteOrigin': 'Remote Origin',
   'workspace.subtitle': '选择一个文件夹查看仪表盘，也可以在这里继续添加项目。',
   'workspace.title': '工作区',
+  'workspace.webDropDescription': '把本地文件夹拖到这里，就能直接在浏览器中完成分析，并继续使用当前这套仪表盘和钻取视图。',
+  'workspace.webDropNote': '网页模式只在当前标签页内本地分析。Git 元数据、原生右键菜单和持久化写回文件暂不可用。',
+  'workspace.webDropTitle': '拖入文件夹开始分析',
+  'workspace.webMode': '网页模式',
+  'workspace.webPickFolder': '选择文件夹',
 };
 
 const translations: Record<Language, Record<TranslationKey, string>> = {

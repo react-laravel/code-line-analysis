@@ -12,6 +12,7 @@ import DuplicatesView from './pages/DuplicatesView';
 import EditorView from './pages/EditorView';
 import WorkspaceView from './pages/WorkspaceView';
 import { useI18n, type Language } from './i18n';
+import { isWebRuntime, stageDroppedFolderImport } from './runtime';
 
 const primaryNavItems = [
   { to: '/dashboard', labelKey: 'nav.dashboard' },
@@ -35,6 +36,7 @@ function normalizeRules(value: FolderRules | null | undefined): FolderRules {
 }
 
 export default function App() {
+  const webMode = isWebRuntime();
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [activeSummary, setActiveSummary] = useState<FolderStats | null>(null);
@@ -191,10 +193,24 @@ export default function App() {
   }, []);
 
   const handleAddFolder = useCallback(async () => {
-    const dir = await window.api.folders.pickDirectory();
-    if (!dir) return;
+    const token = await window.api.folders.pickDirectory();
+    if (!token) return;
 
-    const folder = await window.api.folders.add(dir);
+    const folder = await window.api.folders.add(token);
+    await refreshFolders();
+    setActiveId(folder.id);
+    navigate('/dashboard');
+    autoScannedFolderIdsRef.current.add(folder.id);
+    void window.api.scan.run(folder.id, { detectDuplicates: true }).catch(() => {
+      autoScannedFolderIdsRef.current.delete(folder.id);
+    });
+  }, [navigate, refreshFolders]);
+
+  const handleImportDroppedFolder = useCallback(async (dataTransfer: DataTransfer) => {
+    const token = await stageDroppedFolderImport(dataTransfer);
+    if (!token) return;
+
+    const folder = await window.api.folders.add(token);
     await refreshFolders();
     setActiveId(folder.id);
     navigate('/dashboard');
@@ -355,7 +371,20 @@ export default function App() {
 
       <main className="content">
         <Routes>
-          <Route path="/" element={<WorkspaceView folders={folders} activeId={activeId} onAddFolder={handleAddFolder} onOpenFolder={handleOpenFolder} onRemoveFolder={handleRemoveFolder} />} />
+          <Route
+            path="/"
+            element={(
+              <WorkspaceView
+                folders={folders}
+                activeId={activeId}
+                onAddFolder={handleAddFolder}
+                onImportDroppedFolder={handleImportDroppedFolder}
+                onOpenFolder={handleOpenFolder}
+                onRemoveFolder={handleRemoveFolder}
+                webMode={webMode}
+              />
+            )}
+          />
           <Route path="/dashboard" element={<Dashboard folder={active} progress={progress} />} />
           <Route path="/folders" element={<FolderManager folder={active} />} />
           <Route
@@ -373,7 +402,7 @@ export default function App() {
           <Route path="/files" element={<FilesView folder={active} scanRevision={scanRevision} />} />
           <Route path="/tags" element={<TagsView folder={active} scanRevision={scanRevision} />} />
           <Route path="/top" element={<TopView folder={active} scanRevision={scanRevision} />} />
-          <Route path="/heatmap" element={<HeatmapView folder={active} scanRevision={scanRevision} />} />
+          <Route path="/heatmap" element={<HeatmapView folder={active} scanRevision={scanRevision} webMode={webMode} />} />
           <Route path="/duplicates" element={<DuplicatesView folder={active} scanRevision={scanRevision} />} />
           <Route path="/editor/:relPath" element={<EditorView folder={active} scanRevision={scanRevision} />} />
         </Routes>

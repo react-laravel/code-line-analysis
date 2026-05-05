@@ -8,13 +8,18 @@ interface Props {
   folders: FolderRow[];
   activeId: number | null;
   onAddFolder: () => Promise<void>;
+  onImportDroppedFolder?: (dataTransfer: DataTransfer) => Promise<void>;
   onOpenFolder: (folderId: number) => void;
   onRemoveFolder: (folder: FolderRow) => Promise<void>;
+  webMode: boolean;
 }
 
-export default function WorkspaceView({ folders, activeId, onAddFolder, onOpenFolder, onRemoveFolder }: Props) {
+export default function WorkspaceView({ folders, activeId, onAddFolder, onImportDroppedFolder, onOpenFolder, onRemoveFolder, webMode }: Props) {
   const { locale, t } = useI18n();
   const [repoInfoByFolder, setRepoInfoByFolder] = useState<Record<number, GitRepoInfo | null>>({});
+  const [dragActive, setDragActive] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +60,39 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onOpenFo
     if (details instanceof HTMLDetailsElement) details.open = false;
   }
 
+  async function importFromDrop(dataTransfer: DataTransfer): Promise<void> {
+    if (!onImportDroppedFolder) return;
+    setImportError('');
+    setImporting(true);
+
+    try {
+      await onImportDroppedFolder(dataTransfer);
+    } catch {
+      setImportError(t('workspace.importFailed'));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleDragOver(event: React.DragEvent<HTMLElement>): void {
+    event.preventDefault();
+    if (!webMode) return;
+    setDragActive(true);
+  }
+
+  function handleDragLeave(event: React.DragEvent<HTMLElement>): void {
+    event.preventDefault();
+    if (!webMode) return;
+    setDragActive(false);
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLElement>): void {
+    event.preventDefault();
+    if (!webMode) return;
+    setDragActive(false);
+    void importFromDrop(event.dataTransfer);
+  }
+
   return (
     <div>
       <PageHeader
@@ -63,6 +101,29 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onOpenFo
         meta={t('workspace.folderCount', { count: folders.length.toLocaleString(locale) })}
         actions={<button className="primary" onClick={onAddFolder}>{t('app.addFolder')}</button>}
       />
+
+      {webMode && (
+        <section
+          className={dragActive ? 'workspace-dropzone active' : 'workspace-dropzone'}
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div className="workspace-dropzone-copy">
+            <span className="status-pill">{t('workspace.webMode')}</span>
+            <h2>{t('workspace.webDropTitle')}</h2>
+            <p>{t('workspace.webDropDescription')}</p>
+            <div className="workspace-dropzone-note">{t('workspace.webDropNote')}</div>
+          </div>
+          <div className="action-strip workspace-dropzone-actions">
+            <button className="primary" onClick={() => void onAddFolder()} disabled={importing}>
+              {importing ? t('workspace.importing') : t('workspace.webPickFolder')}
+            </button>
+          </div>
+          {importError && <div className="settings-field-note error">{importError}</div>}
+        </section>
+      )}
 
       {folders.length === 0 ? (
         <EmptyState

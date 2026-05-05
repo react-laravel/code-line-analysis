@@ -2,11 +2,12 @@
 
 [English](README.md)
 
-Code Line Analysis 是一个基于 Electron 的桌面应用，用于扫描本地代码仓库、将统计结果保存到本地 SQLite 数据库，并通过 React 桌面界面进行浏览和编辑。
+Code Line Analysis 是一个同时支持 Electron 桌面端和静态网页部署的代码分析工具：桌面端会把结果写入本地 SQLite，网页端则直接在浏览器里分析拖入的本地文件夹。
 
 ## 功能概览
 
 - 在一个工作区中管理和分析多个文件夹。
+- 支持把文件夹直接拖进网页版本，在浏览器里本地完成分析。
 - 支持扫描过程中的实时进度显示。
 - 统计总行数、代码行、注释行、空行和块注释行。
 - 提供仪表盘、目录树、文件列表、标签、最大文件/函数、热力图、重复代码等视图。
@@ -60,15 +61,29 @@ npm run rebuild
 ## 构建与打包
 
 ```bash
+npm run build:web
 npm run build
 npm run dist
 npm run dist:signed
 ```
 
+- `npm run build:web`：生成静态网页产物，输出到 `dist/renderer`。
 - `npm run build`：构建 renderer 和 Electron main 进程。
 - `npm run dist`：生成未签名的桌面安装包。
 - `npm run dist:signed`：按 Electron Builder 默认签名流程打包。
 - 打包产物输出到 `release/` 目录。
+
+## 网页部署
+
+现在 renderer 可以单独作为静态站点部署。执行：
+
+```bash
+npm run build:web
+```
+
+然后把 `dist/renderer` 目录发布到任意静态托管平台，例如 Nginx、GitHub Pages、Vercel 或 Netlify。项目使用 `HashRouter`，因此不需要额外的 SPA 回退重写规则。
+
+部署步骤、浏览器要求和网页模式限制请见 [WEB_DEPLOY.md](WEB_DEPLOY.md)。
 
 ## 使用方式
 

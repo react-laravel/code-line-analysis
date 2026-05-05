@@ -7,13 +7,14 @@ import PageHeader from '../components/PageHeader';
 interface Props {
   folder: FolderRow | null;
   scanRevision: number;
+  webMode: boolean;
 }
 type SortKey = 'date' | 'files' | 'lines';
 
 const TOOLTIP_STYLE = { background: '#161b22', border: '1px solid #2a313c', color: '#e6edf3' };
 const TOOLTIP_TEXT_STYLE = { color: '#e6edf3' };
 
-export default function HeatmapView({ folder, scanRevision }: Props) {
+export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<HeatmapBucket[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('date');
@@ -57,7 +58,7 @@ export default function HeatmapView({ folder, scanRevision }: Props) {
     <div className="heatmap-page">
       <PageHeader
         title={t('heatmap.title')}
-        description={t('heatmap.subtitle')}
+        description={webMode ? t('heatmap.webSubtitle') : t('heatmap.subtitle')}
         actions={(
           <label className="page-select-field">
             <span>{t('heatmap.window')}</span>
