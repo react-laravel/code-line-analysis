@@ -16,6 +16,7 @@ import type {
   FolderRow, FolderRules, FileMeta, ScanOptions, TopFileSortKey, TreeNodeContextMenuRequest,
 } from '../shared/api';
 import { DEFAULT_BLACKLIST, DEFAULT_DUPLICATE_LINES } from '../shared/api';
+import { IPC_CHANNELS } from '../shared/ipcChannels';
 
 const GLOBAL_RULES_KEY = 'globalRules';
 let disposeIpcResources = () => undefined;
@@ -175,7 +176,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
       duplicateRules: getDuplicateRules(db, folderId),
     }, p => {
       const win = getMainWindow();
-      win?.webContents.send('scan:progress', p);
+      win?.webContents.send(IPC_CHANNELS.SCAN_PROGRESS, p);
     });
     clearGitCache();
     return getSummary(folderId);
@@ -238,7 +239,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     for (const folderId of Array.from(folderWatchers.keys())) stopFolderWatcher(folderId);
   };
 
-  ipcMain.handle('folders:add', (_e, rootPath: string) => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_ADD, (_e, rootPath: string) => {
     const stats = statSync(rootPath);
     if (!stats.isDirectory()) throw new Error('Not a directory');
     const name = path.basename(rootPath);
@@ -249,39 +250,39 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return rowToFolder(row);
   });
 
-  ipcMain.handle('folders:list', () => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_LIST, () => {
     const rows = db.prepare('SELECT * FROM folders ORDER BY created_at DESC').all();
     return rows.map(rowToFolder);
   });
 
-  ipcMain.handle('folders:remove', (_e, id: number) => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_REMOVE, (_e, id: number) => {
     stopFolderWatcher(id);
     db.prepare('DELETE FROM folders WHERE id = ?').run(id);
     db.prepare('DELETE FROM app_settings WHERE key = ?').run(duplicateMinLinesKey(id));
     db.prepare('DELETE FROM app_settings WHERE key = ?').run(duplicateRulesKey(id));
   });
 
-  ipcMain.handle('folders:getRules', (_e, id: number): FolderRules => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_GET_RULES, (_e, id: number): FolderRules => {
     return getFolderRules(db, id);
   });
 
-  ipcMain.handle('folders:getDuplicateMinLines', (_e, id: number): number => getDuplicateMinLines(db, id));
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_GET_DUPLICATE_MIN_LINES, (_e, id: number): number => getDuplicateMinLines(db, id));
 
-  ipcMain.handle('folders:getDuplicateRules', (_e, id: number): FolderRules => getDuplicateRules(db, id));
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_GET_DUPLICATE_RULES, (_e, id: number): FolderRules => getDuplicateRules(db, id));
 
-  ipcMain.handle('folders:setDuplicateMinLines', async (_e, id: number, count: number) => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_SET_DUPLICATE_MIN_LINES, async (_e, id: number, count: number) => {
     setDuplicateMinLines(db, id, count);
     await enqueueFolderScan(id, { detectDuplicates: true });
   });
 
-  ipcMain.handle('folders:setDuplicateRules', async (_e, id: number, rules: FolderRules): Promise<FolderRules> => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_SET_DUPLICATE_RULES, async (_e, id: number, rules: FolderRules): Promise<FolderRules> => {
     setDuplicateRules(db, id, rules);
     const normalized = getDuplicateRules(db, id);
     await enqueueFolderScan(id, { detectDuplicates: true });
     return normalized;
   });
 
-  ipcMain.handle('folders:setRules', async (_e, id: number, rules: FolderRules): Promise<FolderRules> => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_SET_RULES, async (_e, id: number, rules: FolderRules): Promise<FolderRules> => {
     const tx = db.transaction((id: number, rules: FolderRules) => {
       db.prepare('DELETE FROM rules WHERE folder_id = ?').run(id);
       const ins = db.prepare('INSERT INTO rules (folder_id, type, pattern) VALUES (?, ?, ?)');
@@ -296,9 +297,9 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return normalized;
   });
 
-  ipcMain.handle('settings:getGlobalRules', (): FolderRules => getGlobalRules(db));
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_GLOBAL_RULES, (): FolderRules => getGlobalRules(db));
 
-  ipcMain.handle('settings:setGlobalRules', async (_e, rules: FolderRules): Promise<FolderRules> => {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_GLOBAL_RULES, async (_e, rules: FolderRules): Promise<FolderRules> => {
     setGlobalRules(db, rules);
 
     const normalized = getGlobalRules(db);
@@ -310,48 +311,48 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return normalized;
   });
 
-  ipcMain.handle('folders:pickDirectory', async () => {
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_PICK_DIRECTORY, async () => {
     const win = getMainWindow();
     const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] });
     if (res.canceled || res.filePaths.length === 0) return null;
     return res.filePaths[0];
   });
 
-  ipcMain.handle('scan:run', async (_e, folderId: number, opts: ScanOptions = {}) => {
+  ipcMain.handle(IPC_CHANNELS.SCAN_RUN, async (_e, folderId: number, opts: ScanOptions = {}) => {
     return await enqueueFolderScan(folderId, opts);
   });
 
-  ipcMain.handle('scan:cancel', () => { cancelScan(); });
+  ipcMain.handle(IPC_CHANNELS.SCAN_CANCEL, () => { cancelScan(); });
 
-  ipcMain.handle('stats:summary', (_e, folderId: number) => getSummary(folderId));
-  ipcMain.handle('stats:tree', (_e, folderId: number) => getTree(folderId));
-  ipcMain.handle('stats:topFiles', (_e, folderId: number, limit?: number, sortBy?: TopFileSortKey) => getTopFiles(folderId, limit, sortBy));
-  ipcMain.handle('stats:topFunctions', (_e, folderId: number, limit?: number) => getTopFunctions(folderId, limit));
-  ipcMain.handle('stats:apiRoutes', async (_e, folderId: number) => {
+  ipcMain.handle(IPC_CHANNELS.STATS_SUMMARY, (_e, folderId: number) => getSummary(folderId));
+  ipcMain.handle(IPC_CHANNELS.STATS_TREE, (_e, folderId: number) => getTree(folderId));
+  ipcMain.handle(IPC_CHANNELS.STATS_TOP_FILES, (_e, folderId: number, limit?: number, sortBy?: TopFileSortKey) => getTopFiles(folderId, limit, sortBy));
+  ipcMain.handle(IPC_CHANNELS.STATS_TOP_FUNCTIONS, (_e, folderId: number, limit?: number) => getTopFunctions(folderId, limit));
+  ipcMain.handle(IPC_CHANNELS.STATS_API_ROUTES, async (_e, folderId: number) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return { frameworks: [], routes: [], laravelRouteFiles: 0, nextRouteFiles: 0, warnings: [] };
     return await getApiRoutes(folderId, folder.root_path);
   });
-  ipcMain.handle('stats:fileRelations', async (_e, folderId: number) => {
+  ipcMain.handle(IPC_CHANNELS.STATS_FILE_RELATIONS, async (_e, folderId: number) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return { nodes: [], edges: [], scannedFiles: 0, connectedFiles: 0, unresolvedCount: 0 };
     return await getFileRelations(folderId, folder.root_path);
   });
-  ipcMain.handle('stats:laravelSchema', async (_e, folderId: number) => {
+  ipcMain.handle(IPC_CHANNELS.STATS_LARAVEL_SCHEMA, async (_e, folderId: number) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return { isLaravel: false, detectedBy: [], tables: [], relations: [], migrationCount: 0, modelCount: 0, unresolvedModelRelations: 0, warnings: [] };
     return await getLaravelSchema(folderId, folder.root_path);
   });
-  ipcMain.handle('stats:tags', (_e, folderId: number, kind?: string) => getTags(folderId, kind));
-  ipcMain.handle('stats:fileTags', (_e, folderId: number, relPath: string) => getFileTags(folderId, relPath));
-  ipcMain.handle('stats:heatmap', async (_e, folderId: number, days?: number) => {
+  ipcMain.handle(IPC_CHANNELS.STATS_TAGS, (_e, folderId: number, kind?: string) => getTags(folderId, kind));
+  ipcMain.handle(IPC_CHANNELS.STATS_FILE_TAGS, (_e, folderId: number, relPath: string) => getFileTags(folderId, relPath));
+  ipcMain.handle(IPC_CHANNELS.STATS_HEATMAP, async (_e, folderId: number, days?: number) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return [];
     return await getGitHeatmap(folder.root_path, days);
   });
-  ipcMain.handle('stats:duplicates', (_e, folderId: number) => getDuplicates(folderId));
+  ipcMain.handle(IPC_CHANNELS.STATS_DUPLICATES, (_e, folderId: number) => getDuplicates(folderId));
 
-  ipcMain.handle('file:read', async (_e, folderId: number, relPath: string) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_READ, async (_e, folderId: number, relPath: string) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) throw new Error('Folder not found');
     const abs = ensureInsideRoot(folder.root_path, relPath);
@@ -360,7 +361,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return { content, meta };
   });
 
-  ipcMain.handle('file:write', async (_e, folderId: number, relPath: string, content: string) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_WRITE, async (_e, folderId: number, relPath: string, content: string) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) throw new Error('Folder not found');
     const abs = ensureInsideRoot(folder.root_path, relPath);
@@ -396,25 +397,25 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return await fileMeta(folderId, folder.root_path, relPath);
   });
 
-  ipcMain.handle('file:meta', (_e, folderId: number, relPath: string) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_META, (_e, folderId: number, relPath: string) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return null;
     return fileMeta(folderId, folder.root_path, relPath);
   });
 
-  ipcMain.handle('git:fileInfo', async (_e, folderId: number, relPath: string) => {
+  ipcMain.handle(IPC_CHANNELS.GIT_FILE_INFO, async (_e, folderId: number, relPath: string) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return null;
     return await getGitFileInfo(folder.root_path, relPath);
   });
 
-  ipcMain.handle('git:repoInfo', async (_e, folderId: number) => {
+  ipcMain.handle(IPC_CHANNELS.GIT_REPO_INFO, async (_e, folderId: number) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return null;
     return await getGitRepoInfo(folder.root_path);
   });
 
-  ipcMain.handle('system:showTreeNodeContextMenu', (event, request: TreeNodeContextMenuRequest) => {
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_SHOW_TREE_NODE_CONTEXT_MENU, (event, request: TreeNodeContextMenuRequest) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(request.folderId) as { root_path: string } | undefined;
     if (!folder) throw new Error('Folder not found');
 
@@ -461,7 +462,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     });
   });
 
-  ipcMain.handle('system:openExternal', async (_event, url: string) => {
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_EXTERNAL, async (_event, url: string) => {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error('Only http/https URLs are allowed');

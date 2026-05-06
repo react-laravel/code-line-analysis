@@ -377,6 +377,13 @@ export async function stageBrowserDropImport(dataTransfer: DataTransfer): Promis
 
 export function createBrowserApi(): Api {
   return {
+    runtime: {
+      mode: 'web',
+      supportsNativeFolderSelection: false,
+      supportsDirectoryDropImport: true,
+      supportsFileWrite: true,
+      supportsExternalLinks: true,
+    },
     folders: {
       add: async (rootPath) => {
         const staged = stagedImports.get(rootPath);

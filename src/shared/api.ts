@@ -193,7 +193,16 @@ export interface TreeNodeContextMenuRequest {
   labels: TreeNodeContextMenuLabels;
 }
 
+export interface ApiRuntimeInfo {
+  mode: 'electron' | 'web';
+  supportsNativeFolderSelection: boolean;
+  supportsDirectoryDropImport: boolean;
+  supportsFileWrite: boolean;
+  supportsExternalLinks: boolean;
+}
+
 export interface Api {
+  runtime: ApiRuntimeInfo;
   folders: {
     add: (rootPath: string) => Promise<FolderRow>;
     list: () => Promise<FolderRow[]>;
