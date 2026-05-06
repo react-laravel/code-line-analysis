@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { EChartsOption } from 'echarts';
 import { useNavigate } from 'react-router-dom';
-import type { FolderRow, LaravelSchemaGraph, LaravelSchemaTable } from '../../shared/api';
+import type { FolderRow, LaravelSchemaGraph } from '../../shared/api';
 import EChartsPanel from '../components/EChartsPanel';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
@@ -21,8 +21,8 @@ function emptySchema(): LaravelSchemaGraph {
   return { isLaravel: false, detectedBy: [], tables: [], relations: [], migrationCount: 0, modelCount: 0, unresolvedModelRelations: 0, warnings: [] };
 }
 
-function tableScore(table: LaravelSchemaTable, relationCount: number): number {
-  return table.columns.length + (relationCount * 2) + (table.modelPath ? 4 : 0);
+function nodeName(modelClass: string | null, tableName: string): string {
+  return modelClass?.split('\\').filter(Boolean).pop() ?? tableName;
 }
 
 export default function LaravelSchemaView({ folder, scanRevision }: Props) {
@@ -54,17 +54,22 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
     return () => { ignore = true; };
   }, [folder?.id, scanRevision]);
 
+  const ormRelations = useMemo(
+    () => (schema?.relations ?? []).filter(relation => relation.kind !== 'foreign-key'),
+    [schema],
+  );
+
   const relationCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const relation of schema?.relations ?? []) {
+    for (const relation of ormRelations) {
       counts.set(relation.sourceTable, (counts.get(relation.sourceTable) ?? 0) + 1);
       counts.set(relation.targetTable, (counts.get(relation.targetTable) ?? 0) + 1);
     }
     return counts;
-  }, [schema]);
+  }, [ormRelations]);
 
-  const topTables = useMemo(
-    () => [...(schema?.tables ?? [])].sort((left, right) => tableScore(right, relationCounts.get(right.name) ?? 0) - tableScore(left, relationCounts.get(left.name) ?? 0)).slice(0, 40),
+  const visibleTables = useMemo(
+    () => (schema?.tables ?? []).filter(table => table.modelPath || relationCounts.has(table.name)),
     [relationCounts, schema],
   );
 
@@ -82,18 +87,16 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
       textStyle: { color: CHART_TEXT },
       formatter: params => {
         if (params.dataType === 'edge') {
-          const data = params.data as { source: string; target: string; label: string; kind: string };
-          return [data.label, `${data.source} -> ${data.target}`, data.kind].join('<br/>');
+          const data = params.data as { kind: string };
+          return data.kind;
         }
 
-        const data = params.data as { table: LaravelSchemaTable; relations: number };
-        const columns = data.table.columns.slice(0, 10).map(column => `${column.name}: ${column.type}`);
+        const data = params.data as { name: string; tableName: string; modelClass: string | null; relations: number };
         return [
-          data.table.name,
-          `${t('laravelSchema.columns')}: ${data.table.columns.length.toLocaleString(locale)}`,
+          data.name,
           `${t('laravelSchema.relations')}: ${data.relations.toLocaleString(locale)}`,
-          data.table.modelClass ? `${t('laravelSchema.model')}: ${data.table.modelClass}` : '',
-          ...columns,
+          data.modelClass ? `${t('laravelSchema.model')}: ${data.modelClass}` : '',
+          !data.modelClass ? `${t('laravelSchema.table')}: ${data.tableName}` : '',
         ].filter(Boolean).join('<br/>');
       },
     },
@@ -125,35 +128,35 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
           show: true,
           color: CHART_MUTED,
           fontSize: 10,
-          formatter: ({ data }) => (data as { label?: string }).label ?? '',
+          formatter: ({ data }) => (data as { kind?: string }).kind ?? '',
         },
-        data: (schema?.tables ?? []).map(table => {
+        data: visibleTables.map(table => {
           const relations = relationCounts.get(table.name) ?? 0;
           return {
             id: table.name,
-            name: table.name,
-            table,
+            name: nodeName(table.modelClass, table.name),
+            tableName: table.name,
+            modelClass: table.modelClass,
             relations,
             category: table.modelPath ? 1 : 0,
-            symbolSize: 22 + Math.min(34, Math.sqrt((table.columns.length * 8) + (relations * 24))),
+            symbolSize: 24 + Math.min(26, Math.sqrt(Math.max(relations, 1) * 28)),
             label: { show: true, color: CHART_TEXT, overflow: 'truncate', width: 120 },
             itemStyle: table.modelPath ? { borderColor: '#7cc7a0', borderWidth: 2 } : undefined,
           };
         }),
-        links: (schema?.relations ?? []).map(relation => ({
+        links: ormRelations.map(relation => ({
           source: relation.sourceTable,
           target: relation.targetTable,
           kind: relation.kind,
-          label: relation.label,
           lineStyle: {
-            width: relation.kind === 'foreign-key' ? 2.2 : 1.4,
-            type: relation.kind === 'foreign-key' ? 'solid' : 'dashed',
-            opacity: relation.kind === 'foreign-key' ? 0.68 : 0.42,
+            width: 1.8,
+            type: 'solid',
+            opacity: 0.58,
           },
         })),
       },
     ],
-  }), [locale, relationCounts, schema, t]);
+  }), [locale, ormRelations, relationCounts, t, visibleTables]);
 
   if (!folder) return <div className="empty">{t('common.selectFolder')}</div>;
 
@@ -168,11 +171,11 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
       {!loading && schema && !schema.isLaravel ? <EmptyState description={t('laravelSchema.notLaravel')} /> : null}
       {!loading && schema?.isLaravel && schema.tables.length === 0 ? <EmptyState description={t('laravelSchema.noTables')} /> : null}
 
-      {!loading && schema?.isLaravel && schema.tables.length > 0 ? (
+      {!loading && schema?.isLaravel && visibleTables.length > 0 ? (
         <>
           <div className="cards laravel-schema-cards">
             <div className="card metric-card"><div className="label">{t('laravelSchema.tables')}</div><div className="value">{schema.tables.length.toLocaleString(locale)}</div></div>
-            <div className="card metric-card"><div className="label">{t('laravelSchema.relations')}</div><div className="value">{schema.relations.length.toLocaleString(locale)}</div></div>
+            <div className="card metric-card"><div className="label">{t('laravelSchema.relations')}</div><div className="value">{ormRelations.length.toLocaleString(locale)}</div></div>
             <div className="card metric-card"><div className="label">{t('laravelSchema.migrations')}</div><div className="value">{schema.migrationCount.toLocaleString(locale)}</div></div>
             <div className="card metric-card"><div className="label">{t('laravelSchema.models')}</div><div className="value">{schema.modelCount.toLocaleString(locale)}</div></div>
           </div>
@@ -182,11 +185,12 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
               option={chartOption}
               onEvents={{
                 click: params => {
-                  const table = typeof params === 'object' && params && 'dataType' in params && params.dataType === 'node'
-                    && typeof params.data === 'object' && params.data && 'table' in params.data
-                    ? params.data.table as LaravelSchemaTable
+                  const tableName = typeof params === 'object' && params && 'dataType' in params && params.dataType === 'node'
+                    && typeof params.data === 'object' && params.data && 'id' in params.data
+                    ? String(params.data.id)
                     : null;
-                  const target = table?.modelPath ?? table?.migrationFiles[0] ?? null;
+                  const table = tableName ? schema.tables.find(item => item.name === tableName) : null;
+                  const target = table?.modelPath ?? null;
                   if (target) navigate(`/editor/${encodeURIComponent(target)}`);
                 },
               }}
@@ -196,35 +200,6 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
           <div className="relations-chart-meta">
             <span>{t('laravelSchema.detectedBy', { value: schema.detectedBy.join(', ') })}</span>
             {schema.unresolvedModelRelations > 0 ? <span>{t('laravelSchema.unresolved', { count: schema.unresolvedModelRelations })}</span> : null}
-          </div>
-
-          <h2 className="section-heading">{t('laravelSchema.tableDetails')}</h2>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('laravelSchema.table')}</th>
-                  <th>{t('laravelSchema.columns')}</th>
-                  <th>{t('laravelSchema.model')}</th>
-                  <th>{t('laravelSchema.migrations')}</th>
-                  <th>{t('laravelSchema.relations')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topTables.map(table => (
-                  <tr key={table.name} className="clickable-row" onClick={() => {
-                    const target = table.modelPath ?? table.migrationFiles[0];
-                    if (target) navigate(`/editor/${encodeURIComponent(target)}`);
-                  }}>
-                    <td className="mono">{table.name}</td>
-                    <td className="mono laravel-schema-column-list">{table.columns.map(column => `${column.name}:${column.type}`).join(', ')}</td>
-                    <td className="mono">{table.modelClass ?? '-'}</td>
-                    <td>{table.migrationFiles.length.toLocaleString(locale)}</td>
-                    <td>{(relationCounts.get(table.name) ?? 0).toLocaleString(locale)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </>
       ) : null}

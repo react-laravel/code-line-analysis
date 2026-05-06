@@ -36,6 +36,11 @@ export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
     });
   }, [asc, data, sortKey]);
 
+  const chartData = useMemo(
+    () => [...data].sort((left, right) => left.date.localeCompare(right.date)),
+    [data],
+  );
+
   const chartOption = useMemo<EChartsOption>(() => ({
     tooltip: {
       trigger: 'axis',
@@ -58,19 +63,19 @@ export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
     grid: {
       top: 16,
       right: 16,
-      bottom: sortedData.length > 10 ? 68 : 44,
+      bottom: chartData.length > 10 ? 68 : 44,
       left: 12,
       containLabel: true,
     },
     xAxis: {
       type: 'category',
-      data: sortedData.map(bucket => bucket.date),
+      data: chartData.map(bucket => bucket.date),
       axisLine: { lineStyle: { color: CHART_BORDER } },
       axisTick: { show: false },
       axisLabel: {
         color: CHART_MUTED,
         interval: 0,
-        rotate: sortedData.length > 10 ? 38 : 0,
+        rotate: chartData.length > 10 ? 38 : 0,
       },
     },
     yAxis: {
@@ -84,10 +89,10 @@ export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
         type: 'bar',
         barMaxWidth: 32,
         itemStyle: { color: '#58a6ff', borderRadius: [4, 4, 0, 0] },
-        data: sortedData.map(bucket => ({ value: bucket.files, lines: bucket.lines })),
+        data: chartData.map(bucket => ({ value: bucket.files, lines: bucket.lines })),
       },
     ],
-  }), [locale, sortedData, t]);
+  }), [chartData, locale, t]);
 
   function header(nextSortKey: SortKey, label: string) {
     return (

@@ -29,6 +29,7 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
   const [duplicateMinLines, setDuplicateMinLines] = useState(8);
   const [duplicateMinLinesText, setDuplicateMinLinesText] = useState('8');
   const [applying, setApplying] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [duplicateRules, setDuplicateRules] = useState<FolderRules>({ whitelist: [], blacklist: [] });
   const [duplicateWhiteText, setDuplicateWhiteText] = useState('');
   const [duplicateBlackText, setDuplicateBlackText] = useState('');
@@ -61,6 +62,7 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
 
   useEffect(() => {
     if (!folder) {
+      setRulesOpen(false);
       setDuplicateRules({ whitelist: [], blacklist: [] });
       setDuplicateWhiteText('');
       setDuplicateBlackText('');
@@ -142,6 +144,7 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
       setDuplicateRules(persistedRules);
       setDuplicateWhiteText(persistedRules.whitelist.join('\n'));
       setDuplicateBlackText(persistedRules.blacklist.join('\n'));
+      await loadClusters(folder.id);
       setRulesMessage(t('duplicates.rulesApplied'));
     } catch (error) {
       setRulesError(getDuplicateRuleErrorMessage(error, t('duplicates.rulesFailed'), t('duplicates.rulesUnavailable')));
@@ -220,58 +223,71 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
       <div className={duplicateMinLinesError ? 'settings-field-note error' : 'settings-field-note'}>
         {duplicateMinLinesError ?? (applying ? t('duplicates.refreshing') : t('duplicates.settingHelp'))}
       </div>
-      <section className="filter-panel">
-        <div className="filter-panel-header">
-          <strong>{t('duplicates.rules')}</strong>
-          <span className="status-pill">
-            {t('folderManager.activeRules', {
-              whitelist: duplicateRules.whitelist.length.toLocaleString(locale),
-              blacklist: duplicateRules.blacklist.length.toLocaleString(locale),
-            })}
-          </span>
+      <div className="duplicates-rules-summary">
+        <span className="muted">{t('duplicates.rules')}</span>
+        <button type="button" className="status-pill duplicates-rules-trigger" onClick={() => setRulesOpen(true)}>
+          {t('folderManager.activeRules', {
+            whitelist: duplicateRules.whitelist.length.toLocaleString(locale),
+            blacklist: duplicateRules.blacklist.length.toLocaleString(locale),
+          })}
+        </button>
+      </div>
+      {!rulesOpen && (rulesMessage || rulesError) ? (
+        <div className={rulesError ? 'settings-field-note error' : 'settings-field-note'}>
+          {rulesError || rulesMessage}
         </div>
-        <p className="settings-copy">{t('duplicates.rulesHelp')}</p>
-        <div className="rules-grid" style={{ marginTop: 12 }}>
-          <div>
-            <h2>{t('folderManager.whitelist')}</h2>
-            <textarea
-              value={duplicateWhiteText}
-              onChange={event => {
-                setDuplicateWhiteText(event.target.value);
-                setRulesMessage('');
-                setRulesError('');
-              }}
-              rows={8}
-              className="rules-textarea"
-              placeholder={'src/**\nlib/**'}
-            />
-          </div>
-          <div>
-            <h2>{t('folderManager.blacklist')}</h2>
-            <textarea
-              value={duplicateBlackText}
-              onChange={event => {
-                setDuplicateBlackText(event.target.value);
-                setRulesMessage('');
-                setRulesError('');
-              }}
-              rows={8}
-              className="rules-textarea"
-              placeholder={'vendor\n**/__generated__/**'}
-            />
-          </div>
+      ) : null}
+      {rulesOpen ? (
+        <div className="side-drawer-backdrop" onClick={() => setRulesOpen(false)}>
+          <aside className="side-drawer" role="dialog" aria-modal="true" aria-label={t('duplicates.rules')} onClick={event => event.stopPropagation()}>
+            <div className="side-drawer-header">
+              <strong>{t('duplicates.rules')}</strong>
+              <button type="button" onClick={() => setRulesOpen(false)}>{t('common.close')}</button>
+            </div>
+            <p className="settings-copy">{t('duplicates.rulesHelp')}</p>
+            <div className="rules-grid" style={{ marginTop: 12 }}>
+              <div>
+                <h2>{t('folderManager.whitelist')}</h2>
+                <textarea
+                  value={duplicateWhiteText}
+                  onChange={event => {
+                    setDuplicateWhiteText(event.target.value);
+                    setRulesMessage('');
+                    setRulesError('');
+                  }}
+                  rows={10}
+                  className="rules-textarea"
+                  placeholder={'src/**\nlib/**'}
+                />
+              </div>
+              <div>
+                <h2>{t('folderManager.blacklist')}</h2>
+                <textarea
+                  value={duplicateBlackText}
+                  onChange={event => {
+                    setDuplicateBlackText(event.target.value);
+                    setRulesMessage('');
+                    setRulesError('');
+                  }}
+                  rows={10}
+                  className="rules-textarea"
+                  placeholder={'vendor\n**/__generated__/**'}
+                />
+              </div>
+            </div>
+            <div className="settings-actions" style={{ marginTop: 12 }}>
+              <button type="button" className="primary" onClick={() => void saveDuplicateRules()} disabled={rulesSaving}>
+                {rulesSaving ? t('folderManager.saving') : t('duplicates.saveRules')}
+              </button>
+            </div>
+            {(rulesMessage || rulesError) && (
+              <div className={rulesError ? 'settings-field-note error' : 'settings-field-note'}>
+                {rulesError || rulesMessage}
+              </div>
+            )}
+          </aside>
         </div>
-        <div className="settings-actions" style={{ marginTop: 12 }}>
-          <button type="button" className="primary" onClick={() => void saveDuplicateRules()} disabled={rulesSaving}>
-            {rulesSaving ? t('folderManager.saving') : t('duplicates.saveRules')}
-          </button>
-        </div>
-        {(rulesMessage || rulesError) && (
-          <div className={rulesError ? 'settings-field-note error' : 'settings-field-note'}>
-            {rulesError || rulesMessage}
-          </div>
-        )}
-      </section>
+      ) : null}
       {clusters.length === 0 && <div className="empty">{t('duplicates.empty')}</div>}
       {clusters.map(c => (
         <div key={c.hash} className="card" style={{ marginBottom: 8 }}>

@@ -277,7 +277,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle('folders:setDuplicateRules', async (_e, id: number, rules: FolderRules): Promise<FolderRules> => {
     setDuplicateRules(db, id, rules);
     const normalized = getDuplicateRules(db, id);
-    void enqueueFolderScan(id, { detectDuplicates: true }).catch(() => undefined);
+    await enqueueFolderScan(id, { detectDuplicates: true });
     return normalized;
   });
 

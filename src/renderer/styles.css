@@ -575,6 +575,45 @@ tr:hover { background: var(--panel-2); }
 .tree-page {
   display: grid;
   gap: 14px;
+  padding-bottom: 88px;
+}
+.tree-current-path {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(24, 26, 31, 0.94);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+.tree-current-path-label {
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.tree-current-path-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.tree-current-path-separator {
+  color: var(--subtle);
+}
+.tree-current-path-segment {
+  color: var(--muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tree-current-path-segment.active {
+  color: var(--text);
+  font-weight: 700;
 }
 .tree-bottom-actions {
   display: flex;
@@ -584,7 +623,12 @@ tr:hover { background: var(--panel-2); }
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--panel);
+  background: rgba(24, 26, 31, 0.94);
+  box-shadow: var(--shadow);
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  align-self: flex-start;
 }
 
 .tree-node { font-family: 'Menlo', 'Monaco', monospace; font-size: 12px; }
@@ -806,6 +850,33 @@ tr:hover { background: var(--panel-2); }
 .settings-field select,
 .settings-field textarea { width: 100%; }
 
+.side-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.36);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 40;
+}
+.side-drawer {
+  width: min(460px, 100vw);
+  height: 100%;
+  padding: 18px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.side-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .heatmap-page,
 .api-routes-page,
 .laravel-schema-page,
@@ -815,12 +886,32 @@ tr:hover { background: var(--panel-2); }
   display: grid;
   gap: 16px;
 }
+.duplicates-rules-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.duplicates-rules-trigger {
+  cursor: pointer;
+}
+.duplicates-rules-trigger:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
 .api-routes-cards,
 .laravel-schema-cards,
 .relations-cards {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
   margin-bottom: 0;
+}
+.api-routes-cards .metric-card {
+  background:
+    radial-gradient(circle at 90% 12%, rgba(124, 199, 160, 0.15), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01)),
+    var(--panel);
+  border-color: rgba(124, 199, 160, 0.18);
 }
 .api-routes-filters {
   display: flex;
@@ -835,8 +926,121 @@ tr:hover { background: var(--panel-2); }
   color: var(--muted);
   font-size: 12px;
 }
-.api-routes-chart-box {
-  min-height: 420px;
+.api-routes-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(115, 185, 255, 0.08), transparent 48%),
+    var(--panel);
+}
+.api-routes-toolbar-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.api-routes-view-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(13, 17, 23, 0.45);
+}
+.api-routes-view-button {
+  min-width: 74px;
+  padding: 4px 12px;
+  border-color: transparent;
+  background: transparent;
+}
+.api-routes-view-button.active {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.api-routes-depth-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.api-routes-chart-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.api-routes-chart-button {
+  min-width: 82px;
+}
+.api-routes-depth-button {
+  min-width: 56px;
+  padding: 4px 10px;
+  background: rgba(13, 17, 23, 0.38);
+}
+.api-routes-depth-button.active {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.api-routes-route-sections {
+  display: grid;
+  gap: 16px;
+}
+.api-routes-section {
+  display: grid;
+  gap: 12px;
+}
+.api-routes-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.api-routes-group-stack {
+  display: grid;
+  gap: 12px;
+}
+.api-routes-group-card {
+  padding: 0;
+  overflow: hidden;
+}
+.api-routes-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.api-routes-table td {
+  overflow-wrap: anywhere;
+}
+.api-routes-table td:first-child {
+  min-width: 124px;
+}
+.api-routes-flow-stage {
+  min-height: 520px;
+  max-height: 760px;
+  overflow: hidden;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(124, 199, 160, 0.12), transparent 26%),
+    radial-gradient(circle at 84% 12%, rgba(115, 185, 255, 0.11), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
+    var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .api-routes-chart-meta {
   display: flex;

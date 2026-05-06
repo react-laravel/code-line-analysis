@@ -23,6 +23,12 @@ export interface ApiRouteOverview {
   warnings: string[];
 }
 
+interface LaravelRouteContext {
+  pathPrefix: string;
+  controller: string | null;
+  namePrefix: string;
+}
+
 const HTTP_METHOD_ORDER = ['PAGE', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'ANY'];
 const NEXT_ROUTE_EXTENSIONS = /\.(?:ts|tsx|js|jsx)$/i;
 
@@ -34,6 +40,12 @@ function basename(relPath: string): string {
   const normalized = normalizeRelPath(relPath);
   const lastSlash = normalized.lastIndexOf('/');
   return lastSlash === -1 ? normalized : normalized.slice(lastSlash + 1);
+}
+
+function dirname(relPath: string): string {
+  const normalized = normalizeRelPath(relPath);
+  const lastSlash = normalized.lastIndexOf('/');
+  return lastSlash === -1 ? '' : normalized.slice(0, lastSlash);
 }
 
 function normalizeRoutePath(routePath: string): string {
@@ -128,6 +140,34 @@ function findMatchingParen(value: string, openIndex: number): number {
   return -1;
 }
 
+function findMatchingBrace(value: string, openIndex: number): number {
+  let quote: string | null = null;
+  let depth = 0;
+
+  for (let index = openIndex; index < value.length; index += 1) {
+    const char = value[index];
+    const previous = value[index - 1];
+
+    if (quote) {
+      if (char === quote && previous !== '\\') quote = null;
+      continue;
+    }
+
+    if (char === '\'' || char === '"' || char === '`') {
+      quote = char;
+      continue;
+    }
+
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
 function collectLaravelRouteStatements(content: string): string[] {
   const statements: string[] = [];
   let index = 0;
@@ -210,6 +250,262 @@ function parseLaravelRouteName(chain: string): string | null {
   return chain.match(/->name\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/)?.[1] ?? null;
 }
 
+type LaravelChainCall = {
+  callName: string;
+  args: string;
+};
+
+function trimLaravelRouteSegment(value: string): string {
+  return value.trim().replace(/^\/+|\/+$/g, '');
+}
+
+function joinLaravelRouteSegments(prefix: string, segment: string | null): string {
+  const normalizedPrefix = trimLaravelRouteSegment(prefix);
+  const normalizedSegment = trimLaravelRouteSegment(segment ?? '');
+
+  if (!normalizedPrefix) return normalizedSegment;
+  if (!normalizedSegment) return normalizedPrefix;
+  return `${normalizedPrefix}/${normalizedSegment}`;
+}
+
+function combineLaravelRoutePath(prefix: string, routePath: string): string {
+  const normalizedRoutePath = routePath.trim();
+  if (!prefix) return normalizedRoutePath;
+  if (!normalizedRoutePath || normalizedRoutePath === '/') return prefix;
+  return joinLaravelRouteSegments(prefix, normalizedRoutePath);
+}
+
+function parseLaravelController(value: string | undefined): string | null {
+  if (!value) return null;
+
+  const classHandler = value.match(/([A-Za-z0-9_\\]+)::class/);
+  if (classHandler?.[1]) return classHandler[1];
+
+  const literal = readStringLiteral(value);
+  if (literal && !literal.includes('@')) return literal;
+  return null;
+}
+
+function resolveLaravelRouteHandler(value: string | undefined, controller: string | null): string {
+  const literal = readStringLiteral(value);
+  if (controller && literal && !literal.includes('@') && !literal.includes('\\')) return `${controller}@${literal}`;
+  return parseLaravelHandler(value);
+}
+
+function parseLaravelNameSegment(value: string | undefined): string {
+  return readStringLiteral(value) ?? readFirstString(value) ?? '';
+}
+
+function collectLaravelChainCalls(statement: string): LaravelChainCall[] {
+  const header = statement.match(/^Route::([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+  if (!header?.[1]) return [];
+
+  const openIndex = statement.indexOf('(', header[0].length - 1);
+  if (openIndex === -1) return [];
+
+  const closeIndex = findMatchingParen(statement, openIndex);
+  if (closeIndex === -1) return [];
+
+  const calls: LaravelChainCall[] = [{
+    callName: header[1].toLowerCase(),
+    args: statement.slice(openIndex + 1, closeIndex),
+  }];
+
+  let cursor = closeIndex + 1;
+
+  while (cursor < statement.length) {
+    while (/\s/.test(statement[cursor] ?? '')) cursor += 1;
+    if (statement[cursor] !== '-' || statement[cursor + 1] !== '>') {
+      cursor += 1;
+      continue;
+    }
+
+    cursor += 2;
+    while (/\s/.test(statement[cursor] ?? '')) cursor += 1;
+
+    const nameMatch = statement.slice(cursor).match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+    if (!nameMatch?.[1]) break;
+
+    const chainOpenIndex = statement.indexOf('(', cursor + nameMatch[1].length - 1);
+    if (chainOpenIndex === -1) break;
+
+    const chainCloseIndex = findMatchingParen(statement, chainOpenIndex);
+    if (chainCloseIndex === -1) break;
+
+    calls.push({
+      callName: nameMatch[1].toLowerCase(),
+      args: statement.slice(chainOpenIndex + 1, chainCloseIndex),
+    });
+    cursor = chainCloseIndex + 1;
+  }
+
+  return calls;
+}
+
+function extractLaravelClosureBody(value: string): string | null {
+  const functionIndex = value.search(/\bfunction\b/);
+  if (functionIndex === -1) return null;
+
+  const openBraceIndex = value.indexOf('{', functionIndex);
+  if (openBraceIndex === -1) return null;
+
+  const closeBraceIndex = findMatchingBrace(value, openBraceIndex);
+  if (closeBraceIndex === -1) return null;
+
+  return value.slice(openBraceIndex + 1, closeBraceIndex);
+}
+
+function parseLaravelGroupContext(args: string): Partial<LaravelRouteContext> {
+  const configArg = splitArgs(args).find(arg => /^\s*(?:\[|array\s*\()/i.test(arg));
+  if (!configArg) return {};
+
+  const prefix = configArg.match(/['"`]prefix['"`]\s*=>\s*['"`]([^'"`]+)['"`]/)?.[1] ?? '';
+  const namePrefix = configArg.match(/['"`](?:as|name)['"`]\s*=>\s*['"`]([^'"`]+)['"`]/)?.[1] ?? '';
+  const controller = configArg.match(/['"`]controller['"`]\s*=>\s*([A-Za-z0-9_\\]+)::class/)?.[1] ?? null;
+
+  return {
+    pathPrefix: prefix,
+    controller,
+    namePrefix,
+  };
+}
+
+function resolveLaravelRouteName(baseNamePrefix: string, pendingName: string, tailCalls: LaravelChainCall[]): string | null {
+  const tailName = tailCalls
+    .filter(call => call.callName === 'name' || call.callName === 'as')
+    .map(call => parseLaravelNameSegment(call.args))
+    .join('');
+
+  const localName = `${pendingName}${tailName}`;
+  if (!localName) return null;
+  return `${baseNamePrefix}${localName}`;
+}
+
+function collectLaravelRoutesFromContent(content: string, sourceFile: string, context: LaravelRouteContext): ApiRouteEntry[] {
+  const routes: ApiRouteEntry[] = [];
+
+  for (const statement of collectLaravelRouteStatements(content)) {
+    const calls = collectLaravelChainCalls(statement);
+    if (calls.length === 0) continue;
+
+    let pathPrefix = context.pathPrefix;
+    let controller = context.controller;
+    let pendingName = '';
+
+    for (let index = 0; index < calls.length; index += 1) {
+      const call = calls[index];
+      const args = splitArgs(call.args);
+
+      if (call.callName === 'prefix') {
+        pathPrefix = joinLaravelRouteSegments(pathPrefix, parseLaravelNameSegment(args[0]));
+        continue;
+      }
+
+      if (call.callName === 'controller') {
+        controller = parseLaravelController(args[0]) ?? controller;
+        continue;
+      }
+
+      if (call.callName === 'name' || call.callName === 'as') {
+        pendingName += parseLaravelNameSegment(args[0]);
+        continue;
+      }
+
+      if (call.callName === 'group') {
+        const groupContext = parseLaravelGroupContext(call.args);
+        const body = extractLaravelClosureBody(call.args);
+        if (!body) break;
+
+        routes.push(...collectLaravelRoutesFromContent(body, sourceFile, {
+          pathPrefix: joinLaravelRouteSegments(pathPrefix, groupContext.pathPrefix ?? ''),
+          controller: groupContext.controller ?? controller,
+          namePrefix: `${context.namePrefix}${pendingName}${groupContext.namePrefix ?? ''}`,
+        }));
+        break;
+      }
+
+      if (['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'any'].includes(call.callName)) {
+        const uri = readStringLiteral(args[0]) ?? readFirstString(args[0]);
+        if (!uri) break;
+
+        routes.push({
+          framework: 'laravel',
+          methods: [call.callName === 'any' ? 'ANY' : call.callName.toUpperCase()],
+          path: normalizeLaravelPath(combineLaravelRoutePath(pathPrefix, uri), sourceFile),
+          handler: resolveLaravelRouteHandler(args[1], controller),
+          sourceFile,
+          routeName: resolveLaravelRouteName(context.namePrefix, pendingName, calls.slice(index + 1)),
+        });
+        break;
+      }
+
+      if (call.callName === 'match') {
+        const uri = readStringLiteral(args[1]) ?? readFirstString(args[1]);
+        if (!uri) break;
+
+        routes.push({
+          framework: 'laravel',
+          methods: parseMatchMethods(args[0] ?? ''),
+          path: normalizeLaravelPath(combineLaravelRoutePath(pathPrefix, uri), sourceFile),
+          handler: resolveLaravelRouteHandler(args[2], controller),
+          sourceFile,
+          routeName: resolveLaravelRouteName(context.namePrefix, pendingName, calls.slice(index + 1)),
+        });
+        break;
+      }
+
+      if (call.callName === 'apiresource') {
+        const resource = readStringLiteral(args[0]) ?? readFirstString(args[0]);
+        if (!resource) break;
+
+        const resourceController = parseLaravelHandler(args[1]) || controller || 'Closure';
+        routes.push(...laravelResourceRoutes(
+          combineLaravelRoutePath(pathPrefix, resource),
+          resourceController,
+          sourceFile,
+          resolveLaravelRouteName(context.namePrefix, pendingName, calls.slice(index + 1)),
+        ));
+        break;
+      }
+    }
+  }
+
+  return routes;
+}
+
+function resolveLaravelIncludePath(sourceFile: string, expression: string): string | null {
+  const basePathMatch = expression.match(/base_path\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/);
+  if (basePathMatch?.[1]) return normalizeRelPath(basePathMatch[1]);
+
+  const dirMatch = expression.match(/__DIR__\s*\.\s*['"`]\/?([^'"`]+)['"`]/);
+  if (dirMatch?.[1]) return normalizeRelPath(`${dirname(sourceFile)}/${dirMatch[1]}`);
+
+  const literalPath = readStringLiteral(expression) ?? readFirstString(expression);
+  if (!literalPath) return null;
+  if (literalPath.startsWith('/')) return normalizeRelPath(literalPath);
+  return normalizeRelPath(`${dirname(sourceFile)}/${literalPath}`);
+}
+
+function collectLaravelRequiredRouteFiles(content: string, sourceFile: string): string[] {
+  const required = new Set<string>();
+  const patterns = [
+    /\b(?:require|require_once|include|include_once)\s*\(?\s*(base_path\s*\(\s*['"`][^'"`]+['"`]\s*\))\s*\)?\s*;/g,
+    /\b(?:require|require_once|include|include_once)\s*\(?\s*(__DIR__\s*\.\s*['"`]\/?[^'"`]+['"`])\s*\)?\s*;/g,
+    /\b(?:require|require_once|include|include_once)\s*\(?\s*(['"`][^'"`]+['"`])\s*\)?\s*;/g,
+  ];
+
+  for (const pattern of patterns) {
+    let match = pattern.exec(content);
+    while (match) {
+      const resolved = resolveLaravelIncludePath(sourceFile, match[1] ?? '');
+      if (resolved?.endsWith('.php')) required.add(resolved);
+      match = pattern.exec(content);
+    }
+  }
+
+  return Array.from(required);
+}
+
 function normalizeLaravelPath(routePath: string, sourceFile: string): string {
   const normalized = normalizeRoutePath(routePath);
   const isApiFile = sourceFile === 'routes/api.php' || sourceFile.startsWith('routes/api/');
@@ -237,64 +533,56 @@ function laravelResourceRoutes(resource: string, controller: string, sourceFile:
 }
 
 function parseLaravelRoutes(files: ApiSourceFile[]): { routes: ApiRouteEntry[]; routeFileCount: number; warnings: string[] } {
-  const routeFiles = files.filter(file => {
+  const directRouteFiles = files.filter(file => {
     const relPath = normalizeRelPath(file.relPath);
     return relPath === 'routes/api.php' || relPath.startsWith('routes/api/') && relPath.endsWith('.php');
   });
+  const routeFileMap = new Map(directRouteFiles.map(file => [normalizeRelPath(file.relPath), { ...file, relPath: normalizeRelPath(file.relPath) }]));
+  const visitedRouteFiles = new Set<string>();
+  const missingIncludedFiles = new Set<string>();
+  const routeFiles: ApiSourceFile[] = [];
   const routes: ApiRouteEntry[] = [];
   const warnings: string[] = [];
 
-  for (const file of routeFiles) {
-    const relPath = normalizeRelPath(file.relPath);
-    if (/Route::(?:prefix|controller|middleware|name)\s*\(/.test(file.content) || /->group\s*\(/.test(file.content)) {
-      warnings.push('Laravel grouped route prefixes/controllers are only partially expanded; literal route declarations are shown directly.');
+  function visitRouteFile(relPath: string) {
+    const normalizedRelPath = normalizeRelPath(relPath);
+    if (visitedRouteFiles.has(normalizedRelPath)) return;
+
+    const routeFile = routeFileMap.get(normalizedRelPath);
+    if (!routeFile) {
+      missingIncludedFiles.add(normalizedRelPath);
+      return;
     }
 
-    for (const statement of collectLaravelRouteStatements(file.content)) {
-      const call = extractLaravelCall(statement);
-      if (!call) continue;
-      const args = splitArgs(call.args);
-      const routeName = parseLaravelRouteName(call.chain);
-      const callName = call.callName;
+    visitedRouteFiles.add(normalizedRelPath);
+    routeFiles.push(routeFile);
 
-      if (['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'any'].includes(callName)) {
-        const uri = readStringLiteral(args[0]) ?? readFirstString(args[0]);
-        if (!uri) continue;
-        routes.push({
-          framework: 'laravel',
-          methods: [callName === 'any' ? 'ANY' : callName.toUpperCase()],
-          path: normalizeLaravelPath(uri, relPath),
-          handler: parseLaravelHandler(args[1]),
-          sourceFile: relPath,
-          routeName,
-        });
-        continue;
-      }
-
-      if (callName === 'match') {
-        const uri = readStringLiteral(args[1]) ?? readFirstString(args[1]);
-        if (!uri) continue;
-        routes.push({
-          framework: 'laravel',
-          methods: parseMatchMethods(args[0] ?? ''),
-          path: normalizeLaravelPath(uri, relPath),
-          handler: parseLaravelHandler(args[2]),
-          sourceFile: relPath,
-          routeName,
-        });
-        continue;
-      }
-
-      if (callName === 'apiResource') {
-        const resource = readStringLiteral(args[0]) ?? readFirstString(args[0]);
-        if (!resource) continue;
-        const controller = parseLaravelHandler(args[1]);
-        routes.push(...laravelResourceRoutes(resource, controller, relPath, routeName));
-      }
+    for (const includedRouteFile of collectLaravelRequiredRouteFiles(routeFile.content, normalizedRelPath)) {
+      visitRouteFile(includedRouteFile);
     }
   }
 
-  return { routes, routeFileCount: routeFiles.length, warnings: Array.from(new Set(warnings)) };
+  if (routeFileMap.has('routes/api.php')) visitRouteFile('routes/api.php');
+  for (const relPath of routeFileMap.keys()) visitRouteFile(relPath);
+
+  if (missingIncludedFiles.size > 0) {
+    warnings.push(`Laravel included route files were referenced but not found in the scan: ${Array.from(missingIncludedFiles).sort().join(', ')}`);
+  }
+
+  for (const file of routeFiles) {
+    const relPath = normalizeRelPath(file.relPath);
+    if (/Route::(?:prefix|controller|middleware|name|group)\s*\(/.test(file.content) || /->group\s*\(/.test(file.content)) {
+      warnings.push('Laravel route groups are expanded best-effort; dynamic group attributes or runtime-defined routes can still be incomplete.');
+    }
+
+    routes.push(...collectLaravelRoutesFromContent(file.content, relPath, {
+      pathPrefix: '',
+      controller: null,
+      namePrefix: '',
+    }));
+  }
+
+  return { routes, routeFileCount: visitedRouteFiles.size, warnings: Array.from(new Set(warnings)) };
 }
 
 function normalizeNextSegment(segment: string): string | null {
