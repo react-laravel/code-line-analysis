@@ -26,7 +26,7 @@ export interface LaravelSchemaTable {
 export interface LaravelSchemaRelation {
   sourceTable: string;
   targetTable: string;
-  kind: 'foreign-key' | 'belongsTo' | 'hasOne' | 'hasMany' | 'belongsToMany' | 'morphOne' | 'morphMany' | 'morphToMany' | 'morphedByMany';
+  kind: 'foreign-key' | 'belongsTo' | 'hasOne' | 'hasMany' | 'belongsToMany' | 'morphOne' | 'morphMany' | 'morphTo' | 'morphToMany' | 'morphedByMany';
   label: string;
   sourceColumn: string | null;
   targetColumn: string | null;
@@ -63,6 +63,8 @@ interface ParsedModelRelationship {
   sourceColumn: string | null;
   targetColumn: string | null;
   pivotTable: string | null;
+  morphName: string | null;
+  morphTypeColumn: string | null;
 }
 
 const SCHEMA_BLOCK_PATTERN = /Schema::(create|table)\s*\(\s*['"]([^'"]+)['"][\s\S]*?function\s*\([^)]*\)\s*(?:use\s*\([^)]*\)\s*)?\{([\s\S]*?)\n\s*\}\s*\);/g;
@@ -76,6 +78,7 @@ const RELATIONSHIP_METHODS = new Set<LaravelSchemaRelation['kind']>([
   'belongsToMany',
   'morphOne',
   'morphMany',
+  'morphTo',
   'morphToMany',
   'morphedByMany',
 ]);
@@ -295,6 +298,48 @@ function classNameFromClassExpr(value: string): string | null {
   return parts[parts.length - 1] ?? null;
 }
 
+function classBaseName(value: string | null): string | null {
+  if (!value) return null;
+  const parts = value.split('\\').filter(Boolean);
+  return parts[parts.length - 1] ?? null;
+}
+
+function tableNameFromClass(value: string | null): string | null {
+  const className = classBaseName(value);
+  return className ? defaultTableName(className) : null;
+}
+
+function defaultForeignKeyForTable(tableName: string): string {
+  return `${singular(tableName)}_id`;
+}
+
+function defaultPivotTableName(sourceTable: string, targetTable: string): string {
+  return [singular(sourceTable), singular(targetTable)].sort().join('_');
+}
+
+function defaultMorphIdColumn(morphName: string): string {
+  return `${snakeCase(morphName)}_id`;
+}
+
+function defaultMorphTypeColumn(morphName: string): string {
+  return `${snakeCase(morphName)}_type`;
+}
+
+function defaultMorphPivotTable(morphName: string): string {
+  return plural(snakeCase(morphName));
+}
+
+function formatTableColumns(tableName: string, columns: Array<string | null>): string {
+  const visibleColumns = columns.filter((column): column is string => Boolean(column));
+  if (visibleColumns.length === 0) return `${tableName}.?`;
+  return visibleColumns.map(column => `${tableName}.${column}`).join(' / ');
+}
+
+function formatBareColumns(columns: Array<string | null>): string {
+  const visibleColumns = columns.filter((column): column is string => Boolean(column));
+  return visibleColumns.length > 0 ? visibleColumns.join(' / ') : '?';
+}
+
 function columnNameForForeignIdFor(args: string): string | null {
   const className = classNameFromClassExpr(splitArgs(args)[0] ?? '');
   return className ? `${snakeCase(className)}_id` : null;
@@ -467,7 +512,18 @@ function formatModelRelationLabel(relation: ParsedModelRelationship, sourceTable
   if (relation.kind === 'hasOne' || relation.kind === 'hasMany') {
     return `${relation.kind}: ${sourceTable}.${relation.targetColumn ?? 'id'} -> ${targetTable}.${relation.sourceColumn ?? '?'}`;
   }
-  if (relation.pivotTable) return `${relation.kind}: ${sourceTable} <-> ${targetTable} via ${relation.pivotTable}`;
+  if (relation.kind === 'morphTo') {
+    return `${relation.kind}: ${formatTableColumns(sourceTable, [relation.morphTypeColumn, relation.sourceColumn])} -> ${targetTable}.${relation.targetColumn ?? 'id'}`;
+  }
+  if (relation.kind === 'morphOne' || relation.kind === 'morphMany') {
+    return `${relation.kind}: ${sourceTable}.${relation.targetColumn ?? 'id'} -> ${formatTableColumns(targetTable, [relation.morphTypeColumn, relation.sourceColumn])}`;
+  }
+  if (relation.kind === 'belongsToMany') {
+    return `${relation.kind}: ${sourceTable} <-> ${targetTable} via ${relation.pivotTable ?? defaultPivotTableName(sourceTable, targetTable)} (${formatBareColumns([relation.sourceColumn, relation.targetColumn])})`;
+  }
+  if (relation.kind === 'morphToMany' || relation.kind === 'morphedByMany') {
+    return `${relation.kind}: ${sourceTable} <-> ${targetTable} via ${relation.pivotTable ?? defaultMorphPivotTable(relation.morphName ?? relation.methodName)} (${formatBareColumns([relation.morphTypeColumn, relation.sourceColumn, relation.targetColumn])})`;
+  }
   return relation.kind;
 }
 
@@ -489,15 +545,11 @@ function resolveClassReference(value: string | undefined, namespace: string, use
 function parseRelationshipArgs(methodName: string, kind: LaravelSchemaRelation['kind'], args: string, namespace: string, uses: Map<string, string>, sourceTable: string): ParsedModelRelationship | null {
   if (!RELATIONSHIP_METHODS.has(kind)) return null;
   const parts = splitArgs(args);
-  const targetClass = kind === 'morphOne' || kind === 'morphMany' || kind === 'morphToMany' || kind === 'morphedByMany' || kind === 'belongsToMany'
-    ? resolveClassReference(parts[0], namespace, uses)
-    : kind === 'belongsTo' || kind === 'hasOne' || kind === 'hasMany'
-      ? resolveClassReference(parts[0], namespace, uses)
-      : null;
-
-  if (!targetClass) return null;
+  const targetClass = kind === 'morphTo' ? null : resolveClassReference(parts[0], namespace, uses);
+  const targetTable = tableNameFromClass(targetClass);
 
   if (kind === 'belongsTo') {
+    if (!targetClass) return null;
     return {
       methodName,
       kind,
@@ -505,17 +557,95 @@ function parseRelationshipArgs(methodName: string, kind: LaravelSchemaRelation['
       sourceColumn: readStringLiteral(parts[1]) ?? `${snakeCase(methodName)}_id`,
       targetColumn: readStringLiteral(parts[2]) ?? 'id',
       pivotTable: null,
+      morphName: null,
+      morphTypeColumn: null,
     };
   }
 
   if (kind === 'hasOne' || kind === 'hasMany') {
+    if (!targetClass) return null;
     return {
       methodName,
       kind,
       targetClass,
-      sourceColumn: readStringLiteral(parts[1]) ?? `${singular(sourceTable)}_id`,
+      sourceColumn: readStringLiteral(parts[1]) ?? defaultForeignKeyForTable(sourceTable),
       targetColumn: readStringLiteral(parts[2]) ?? 'id',
       pivotTable: null,
+      morphName: null,
+      morphTypeColumn: null,
+    };
+  }
+
+  if (kind === 'morphTo') {
+    const morphName = readStringLiteral(parts[0]) ?? methodName;
+    return {
+      methodName,
+      kind,
+      targetClass: null,
+      sourceColumn: readStringLiteral(parts[2]) ?? defaultMorphIdColumn(morphName),
+      targetColumn: readStringLiteral(parts[3]) ?? 'id',
+      pivotTable: null,
+      morphName,
+      morphTypeColumn: readStringLiteral(parts[1]) ?? defaultMorphTypeColumn(morphName),
+    };
+  }
+
+  if (kind === 'morphOne' || kind === 'morphMany') {
+    if (!targetClass) return null;
+    const morphName = readStringLiteral(parts[1]) ?? methodName;
+    return {
+      methodName,
+      kind,
+      targetClass,
+      sourceColumn: readStringLiteral(parts[3]) ?? defaultMorphIdColumn(morphName),
+      targetColumn: readStringLiteral(parts[4]) ?? 'id',
+      pivotTable: null,
+      morphName,
+      morphTypeColumn: readStringLiteral(parts[2]) ?? defaultMorphTypeColumn(morphName),
+    };
+  }
+
+  if (kind === 'belongsToMany') {
+    if (!targetClass) return null;
+    return {
+      methodName,
+      kind,
+      targetClass,
+      sourceColumn: readStringLiteral(parts[2]) ?? defaultForeignKeyForTable(sourceTable),
+      targetColumn: readStringLiteral(parts[3]) ?? (targetTable ? defaultForeignKeyForTable(targetTable) : null),
+      pivotTable: readStringLiteral(parts[1]) ?? (targetTable ? defaultPivotTableName(sourceTable, targetTable) : null),
+      morphName: null,
+      morphTypeColumn: null,
+    };
+  }
+
+  if (kind === 'morphToMany') {
+    if (!targetClass) return null;
+    const morphName = readStringLiteral(parts[1]) ?? methodName;
+    return {
+      methodName,
+      kind,
+      targetClass,
+      sourceColumn: readStringLiteral(parts[3]) ?? defaultMorphIdColumn(morphName),
+      targetColumn: readStringLiteral(parts[4]) ?? (targetTable ? defaultForeignKeyForTable(targetTable) : null),
+      pivotTable: readStringLiteral(parts[2]) ?? defaultMorphPivotTable(morphName),
+      morphName,
+      morphTypeColumn: defaultMorphTypeColumn(morphName),
+    };
+  }
+
+  if (kind === 'morphedByMany') {
+    if (!targetClass) return null;
+    const morphName = readStringLiteral(parts[1]) ?? methodName;
+    return {
+      methodName,
+      kind,
+      targetClass,
+      sourceColumn: readStringLiteral(parts[3]) ?? defaultForeignKeyForTable(sourceTable),
+      targetColumn: readStringLiteral(parts[4]) ?? defaultMorphIdColumn(morphName),
+      pivotTable: readStringLiteral(parts[2]) ?? defaultMorphPivotTable(morphName),
+      morphName,
+      morphTypeColumn: defaultMorphTypeColumn(morphName),
     };
   }
 
@@ -523,9 +653,11 @@ function parseRelationshipArgs(methodName: string, kind: LaravelSchemaRelation['
     methodName,
     kind,
     targetClass,
-    sourceColumn: readStringLiteral(parts[2]) ?? null,
-    targetColumn: readStringLiteral(parts[3]) ?? null,
-    pivotTable: readStringLiteral(parts[1]) ?? null,
+    sourceColumn: null,
+    targetColumn: null,
+    pivotTable: null,
+    morphName: null,
+    morphTypeColumn: null,
   };
 }
 
@@ -576,6 +708,15 @@ function parseModels(files: LaravelSourceFile[]): ParsedModel[] {
   return models;
 }
 
+function resolveMorphToTargets(sourceModel: ParsedModel, relationship: ParsedModelRelationship, models: ParsedModel[]): ParsedModel[] {
+  if (relationship.kind !== 'morphTo' || !relationship.morphName) return [];
+  return models.filter(model => model.fqcn !== sourceModel.fqcn && model.relationships.some(candidate => (
+    (candidate.kind === 'morphOne' || candidate.kind === 'morphMany')
+      && candidate.targetClass === sourceModel.fqcn
+      && candidate.morphName === relationship.morphName
+  )));
+}
+
 function addModelRelations(models: ParsedModel[], tables: Map<string, LaravelSchemaTable>, relations: Map<string, LaravelSchemaRelation>): number {
   const modelsByFqcn = new Map(models.map(model => [model.fqcn, model]));
   let unresolvedModelRelations = 0;
@@ -586,9 +727,33 @@ function addModelRelations(models: ParsedModel[], tables: Map<string, LaravelSch
     table.modelPath = model.relPath;
 
     for (const relationship of model.relationships) {
+      if (relationship.kind === 'morphTo') {
+        const targetModels = resolveMorphToTargets(model, relationship, models);
+        if (targetModels.length === 0) {
+          unresolvedModelRelations += 1;
+          continue;
+        }
+
+        for (const targetModel of targetModels) {
+          ensureTable(tables, targetModel.table);
+          addRelation(relations, {
+            sourceTable: model.table,
+            targetTable: targetModel.table,
+            kind: relationship.kind,
+            label: formatModelRelationLabel(relationship, model.table, targetModel.table),
+            sourceColumn: relationship.sourceColumn,
+            targetColumn: relationship.targetColumn,
+            sourceModel: model.fqcn,
+            targetModel: targetModel.fqcn,
+            sourceFile: model.relPath,
+          });
+        }
+        continue;
+      }
+
       const targetModel = relationship.targetClass ? modelsByFqcn.get(relationship.targetClass) : null;
       if (!targetModel) unresolvedModelRelations += 1;
-      const targetTable = targetModel?.table ?? (relationship.targetClass ? defaultTableName(relationship.targetClass.split('\\').pop() ?? relationship.targetClass) : null);
+      const targetTable = targetModel?.table ?? tableNameFromClass(relationship.targetClass);
       if (!targetTable) continue;
 
       ensureTable(tables, targetTable);

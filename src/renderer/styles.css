@@ -1084,6 +1084,77 @@ tr:hover { background: var(--panel-2); }
 .laravel-schema-chart-box {
   height: 560px;
 }
+.laravel-schema-guide-grid {
+  gap: 12px;
+}
+.laravel-schema-guide-box {
+  height: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(115, 185, 255, 0.12), transparent 28%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
+    var(--panel);
+}
+.laravel-schema-guide-box h3 {
+  margin: 0;
+}
+.laravel-schema-guide-copy {
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.laravel-schema-method-list,
+.laravel-schema-step-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.laravel-schema-method-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.laravel-schema-method-list li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.laravel-schema-method-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+.laravel-schema-method-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+.laravel-schema-step-list {
+  counter-reset: laravel-schema-step;
+}
+.laravel-schema-step-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.5;
+}
+.laravel-schema-step-list li::before {
+  counter-increment: laravel-schema-step;
+  content: counter(laravel-schema-step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
 .laravel-schema-column-list {
   max-width: 520px;
   white-space: normal;

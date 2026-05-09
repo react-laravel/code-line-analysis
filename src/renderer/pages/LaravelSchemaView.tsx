@@ -16,6 +16,7 @@ const CHART_TEXT = '#e6edf3';
 const CHART_MUTED = '#8b949e';
 const CHART_BORDER = '#2a313c';
 const CHART_TOOLTIP_BACKGROUND = '#161b22';
+const SUPPORTED_RELATION_METHODS = ['belongsTo()', 'hasOne()', 'hasMany()', 'belongsToMany()', 'morphOne()', 'morphMany()', 'morphTo()', 'morphToMany()'];
 
 function emptySchema(): LaravelSchemaGraph {
   return { isLaravel: false, detectedBy: [], tables: [], relations: [], migrationCount: 0, modelCount: 0, unresolvedModelRelations: 0, warnings: [] };
@@ -23,6 +24,12 @@ function emptySchema(): LaravelSchemaGraph {
 
 function nodeName(modelClass: string | null, tableName: string): string {
   return modelClass?.split('\\').filter(Boolean).pop() ?? tableName;
+}
+
+function relationLineStyle(kind: string) {
+  if (kind.startsWith('morph')) return { width: 2, type: 'dashed' as const, opacity: 0.64 };
+  if (kind.endsWith('Many')) return { width: 2, type: 'dotted' as const, opacity: 0.58 };
+  return { width: 1.8, type: 'solid' as const, opacity: 0.58 };
 }
 
 export default function LaravelSchemaView({ folder, scanRevision }: Props) {
@@ -68,9 +75,28 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
     return counts;
   }, [ormRelations]);
 
+  const relationKindCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const relation of ormRelations) {
+      counts.set(relation.kind, (counts.get(relation.kind) ?? 0) + 1);
+    }
+    return counts;
+  }, [ormRelations]);
+
   const visibleTables = useMemo(
     () => (schema?.tables ?? []).filter(table => table.modelPath || relationCounts.has(table.name)),
     [relationCounts, schema],
+  );
+
+  const analysisSteps = useMemo(
+    () => [
+      t('laravelSchema.stepScanModels'),
+      t('laravelSchema.stepParseModels'),
+      t('laravelSchema.stepReadRelations'),
+      t('laravelSchema.stepInferKeys'),
+      t('laravelSchema.stepGenerateDiagram'),
+    ],
+    [t],
   );
 
   const chartOption = useMemo<EChartsOption>(() => ({
@@ -87,8 +113,8 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
       textStyle: { color: CHART_TEXT },
       formatter: params => {
         if (params.dataType === 'edge') {
-          const data = params.data as { kind: string };
-          return data.kind;
+          const data = params.data as { kind: string; label?: string };
+          return data.label ?? data.kind;
         }
 
         const data = params.data as { name: string; tableName: string; modelClass: string | null; relations: number };
@@ -148,11 +174,8 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
           source: relation.sourceTable,
           target: relation.targetTable,
           kind: relation.kind,
-          lineStyle: {
-            width: 1.8,
-            type: 'solid',
-            opacity: 0.58,
-          },
+          label: relation.label,
+          lineStyle: relationLineStyle(relation.kind),
         })),
       },
     ],
@@ -166,6 +189,37 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
         title={t('laravelSchema.title')}
         description={t('laravelSchema.subtitle')}
       />
+
+      <div className="chart-grid laravel-schema-guide-grid">
+        <div className="chart-box laravel-schema-guide-box">
+          <div>
+            <h3>{t('laravelSchema.supportedTitle')}</h3>
+            <p className="laravel-schema-guide-copy">{t('laravelSchema.supportedSubtitle')}</p>
+          </div>
+          <ul className="laravel-schema-method-list">
+            {SUPPORTED_RELATION_METHODS.map(methodName => {
+              const kind = methodName.replace(/\(\)$/, '');
+              const count = relationKindCounts.get(kind) ?? 0;
+              return (
+                <li key={methodName}>
+                  <span className="laravel-schema-method-name">{methodName}</span>
+                  <span className="laravel-schema-method-count">{count.toLocaleString(locale)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="chart-box laravel-schema-guide-box">
+          <div>
+            <h3>{t('laravelSchema.pipelineTitle')}</h3>
+            <p className="laravel-schema-guide-copy">{t('laravelSchema.pipelineSubtitle')}</p>
+          </div>
+          <ol className="laravel-schema-step-list">
+            {analysisSteps.map(step => <li key={step}>{step}</li>)}
+          </ol>
+        </div>
+      </div>
 
       {loading ? <EmptyState description={t('laravelSchema.loading')} /> : null}
       {!loading && schema && !schema.isLaravel ? <EmptyState description={t('laravelSchema.notLaravel')} /> : null}
