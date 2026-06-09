@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { EChartsOption } from 'echarts';
 import { useNavigate } from 'react-router-dom';
-import type { FolderRow, LaravelSchemaGraph } from '../../shared/api';
+import type { FolderRow, LaravelSchemaGraph, LaravelSchemaRelation } from '../../shared/api';
 import EChartsPanel from '../components/EChartsPanel';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
@@ -16,7 +16,24 @@ const CHART_TEXT = '#e6edf3';
 const CHART_MUTED = '#8b949e';
 const CHART_BORDER = '#2a313c';
 const CHART_TOOLTIP_BACKGROUND = '#161b22';
-const SUPPORTED_RELATION_METHODS = ['belongsTo()', 'hasOne()', 'hasMany()', 'belongsToMany()', 'morphOne()', 'morphMany()', 'morphTo()', 'morphToMany()'];
+
+type OrmRelationKind = Exclude<LaravelSchemaRelation['kind'], 'foreign-key'>;
+type OrmLaravelRelation = LaravelSchemaRelation & { kind: OrmRelationKind };
+
+const SUPPORTED_RELATION_METHODS: Array<{ kind: OrmRelationKind; method: string }> = [
+  { kind: 'belongsTo', method: 'belongsTo()' },
+  { kind: 'hasOne', method: 'hasOne()' },
+  { kind: 'hasMany', method: 'hasMany()' },
+  { kind: 'belongsToMany', method: 'belongsToMany()' },
+  { kind: 'morphOne', method: 'morphOne()' },
+  { kind: 'morphMany', method: 'morphMany()' },
+  { kind: 'morphTo', method: 'morphTo()' },
+  { kind: 'morphToMany', method: 'morphToMany()' },
+];
+const EXTRA_RELATION_METHODS: Array<{ kind: OrmRelationKind; method: string }> = [
+  { kind: 'morphedByMany', method: 'morphedByMany()' },
+];
+const DEFAULT_RELATION_KINDS = [...SUPPORTED_RELATION_METHODS, ...EXTRA_RELATION_METHODS].map(item => item.kind);
 
 function emptySchema(): LaravelSchemaGraph {
   return { isLaravel: false, detectedBy: [], tables: [], relations: [], migrationCount: 0, modelCount: 0, unresolvedModelRelations: 0, warnings: [] };
@@ -32,9 +49,28 @@ function relationLineStyle(kind: string) {
   return { width: 1.8, type: 'solid' as const, opacity: 0.58 };
 }
 
+function relationKey(relation: LaravelSchemaRelation): string {
+  return [
+    relation.sourceTable,
+    relation.targetTable,
+    relation.kind,
+    relation.sourceColumn ?? '',
+    relation.targetColumn ?? '',
+    relation.sourceModel ?? '',
+    relation.targetModel ?? '',
+    relation.sourceFile ?? '',
+  ].join('|');
+}
+
+function optionalValue(value: string | null): string {
+  return value && value.trim() ? value : '-';
+}
+
 export default function LaravelSchemaView({ folder, scanRevision }: Props) {
   const [schema, setSchema] = useState<LaravelSchemaGraph | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedRelationKinds, setSelectedRelationKinds] = useState<Set<OrmRelationKind>>(() => new Set(DEFAULT_RELATION_KINDS));
+  const [selectedRelationKey, setSelectedRelationKey] = useState<string | null>(null);
   const navigate = useNavigate();
   const { locale, t } = useI18n();
 
@@ -61,19 +97,33 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
     return () => { ignore = true; };
   }, [folder?.id, scanRevision]);
 
-  const ormRelations = useMemo(
-    () => (schema?.relations ?? []).filter(relation => relation.kind !== 'foreign-key'),
+  const ormRelations = useMemo<OrmLaravelRelation[]>(
+    () => (schema?.relations ?? []).filter((relation): relation is OrmLaravelRelation => relation.kind !== 'foreign-key'),
     [schema],
   );
 
+  const filteredRelations = useMemo(
+    () => ormRelations.filter(relation => selectedRelationKinds.has(relation.kind)),
+    [ormRelations, selectedRelationKinds],
+  );
+
+  const selectedRelation = useMemo(
+    () => (selectedRelationKey ? filteredRelations.find(relation => relationKey(relation) === selectedRelationKey) ?? null : null),
+    [filteredRelations, selectedRelationKey],
+  );
+
+  useEffect(() => {
+    if (selectedRelationKey && !selectedRelation) setSelectedRelationKey(null);
+  }, [selectedRelation, selectedRelationKey]);
+
   const relationCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const relation of ormRelations) {
+    for (const relation of filteredRelations) {
       counts.set(relation.sourceTable, (counts.get(relation.sourceTable) ?? 0) + 1);
       counts.set(relation.targetTable, (counts.get(relation.targetTable) ?? 0) + 1);
     }
     return counts;
-  }, [ormRelations]);
+  }, [filteredRelations]);
 
   const relationKindCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -83,9 +133,19 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
     return counts;
   }, [ormRelations]);
 
+  const relationFilterMethods = useMemo(() => {
+    const methods = [...SUPPORTED_RELATION_METHODS];
+    for (const method of EXTRA_RELATION_METHODS) {
+      if (relationKindCounts.has(method.kind)) methods.push(method);
+    }
+    return methods;
+  }, [relationKindCounts]);
+
+  const allFiltersSelected = DEFAULT_RELATION_KINDS.every(kind => selectedRelationKinds.has(kind));
+
   const visibleTables = useMemo(
-    () => (schema?.tables ?? []).filter(table => table.modelPath || relationCounts.has(table.name)),
-    [relationCounts, schema],
+    () => (schema?.tables ?? []).filter(table => relationCounts.has(table.name) || (allFiltersSelected && table.modelPath)),
+    [allFiltersSelected, relationCounts, schema],
   );
 
   const analysisSteps = useMemo(
@@ -170,16 +230,30 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
             itemStyle: table.modelPath ? { borderColor: '#7cc7a0', borderWidth: 2 } : undefined,
           };
         }),
-        links: ormRelations.map(relation => ({
+        links: filteredRelations.map(relation => ({
           source: relation.sourceTable,
           target: relation.targetTable,
           kind: relation.kind,
           label: relation.label,
+          relationKey: relationKey(relation),
           lineStyle: relationLineStyle(relation.kind),
         })),
       },
     ],
-  }), [locale, ormRelations, relationCounts, t, visibleTables]);
+  }), [filteredRelations, locale, relationCounts, t, visibleTables]);
+
+  function resetRelationFilters() {
+    setSelectedRelationKinds(new Set(DEFAULT_RELATION_KINDS));
+  }
+
+  function toggleRelationKind(kind: OrmRelationKind) {
+    setSelectedRelationKinds(current => {
+      const next = new Set(current);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  }
 
   if (!folder) return <div className="empty">{t('common.selectFolder')}</div>;
 
@@ -197,12 +271,11 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
             <p className="laravel-schema-guide-copy">{t('laravelSchema.supportedSubtitle')}</p>
           </div>
           <ul className="laravel-schema-method-list">
-            {SUPPORTED_RELATION_METHODS.map(methodName => {
-              const kind = methodName.replace(/\(\)$/, '');
+            {SUPPORTED_RELATION_METHODS.map(({ kind, method }) => {
               const count = relationKindCounts.get(kind) ?? 0;
               return (
-                <li key={methodName}>
-                  <span className="laravel-schema-method-name">{methodName}</span>
+                <li key={kind}>
+                  <span className="laravel-schema-method-name">{method}</span>
                   <span className="laravel-schema-method-count">{count.toLocaleString(locale)}</span>
                 </li>
               );
@@ -234,11 +307,47 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
             <div className="card metric-card"><div className="label">{t('laravelSchema.models')}</div><div className="value">{schema.modelCount.toLocaleString(locale)}</div></div>
           </div>
 
+          <div className="laravel-schema-filter-bar">
+            <div>
+              <strong>{t('laravelSchema.filterTitle')}</strong>
+              <div className="laravel-schema-filter-summary">
+                {t('laravelSchema.filteredRelations', { shown: filteredRelations.length, total: ormRelations.length })}
+              </div>
+            </div>
+            <div className="laravel-schema-filter-actions" aria-label={t('laravelSchema.filterTitle')}>
+              <button
+                type="button"
+                className={allFiltersSelected ? 'api-routes-depth-button active' : 'api-routes-depth-button'}
+                onClick={resetRelationFilters}
+              >
+                {t('laravelSchema.filterAll')}
+              </button>
+              {relationFilterMethods.map(({ kind, method }) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className={selectedRelationKinds.has(kind) ? 'api-routes-depth-button active' : 'api-routes-depth-button'}
+                  onClick={() => toggleRelationKind(kind)}
+                >
+                  {method.replace(/\(\)$/, '')}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="chart-box laravel-schema-chart-box">
             <EChartsPanel
               option={chartOption}
               onEvents={{
                 click: params => {
+                  if (typeof params === 'object' && params && 'dataType' in params && params.dataType === 'edge') {
+                    const nextRelationKey = typeof params.data === 'object' && params.data && 'relationKey' in params.data
+                      ? String(params.data.relationKey)
+                      : null;
+                    if (nextRelationKey) setSelectedRelationKey(nextRelationKey);
+                    return;
+                  }
+
                   const tableName = typeof params === 'object' && params && 'dataType' in params && params.dataType === 'node'
                     && typeof params.data === 'object' && params.data && 'id' in params.data
                     ? String(params.data.id)
@@ -253,8 +362,59 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
 
           <div className="relations-chart-meta">
             <span>{t('laravelSchema.detectedBy', { value: schema.detectedBy.join(', ') })}</span>
+            <span>{t('laravelSchema.edgeHint')}</span>
             {schema.unresolvedModelRelations > 0 ? <span>{t('laravelSchema.unresolved', { count: schema.unresolvedModelRelations })}</span> : null}
           </div>
+
+          {selectedRelation ? (
+            <div className="side-drawer-backdrop" onClick={() => setSelectedRelationKey(null)}>
+              <aside className="side-drawer laravel-schema-relation-drawer" role="dialog" aria-modal="true" aria-label={t('laravelSchema.relationDetails')} onClick={event => event.stopPropagation()}>
+                <div className="side-drawer-header">
+                  <div>
+                    <div className="label">{selectedRelation.kind}</div>
+                    <strong>{selectedRelation.sourceTable} -&gt; {selectedRelation.targetTable}</strong>
+                  </div>
+                  <button type="button" onClick={() => setSelectedRelationKey(null)}>{t('common.close')}</button>
+                </div>
+                <div className="laravel-schema-relation-label">{selectedRelation.label}</div>
+                <dl className="laravel-schema-relation-details">
+                  <div>
+                    <dt>{t('laravelSchema.sourceTable')}</dt>
+                    <dd>{selectedRelation.sourceTable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('laravelSchema.targetTable')}</dt>
+                    <dd>{selectedRelation.targetTable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('laravelSchema.sourceColumn')}</dt>
+                    <dd>{optionalValue(selectedRelation.sourceColumn)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('laravelSchema.targetColumn')}</dt>
+                    <dd>{optionalValue(selectedRelation.targetColumn)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('laravelSchema.sourceModel')}</dt>
+                    <dd>{optionalValue(selectedRelation.sourceModel)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('laravelSchema.targetModel')}</dt>
+                    <dd>{optionalValue(selectedRelation.targetModel)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('laravelSchema.sourceFile')}</dt>
+                    <dd>{optionalValue(selectedRelation.sourceFile)}</dd>
+                  </div>
+                </dl>
+                {selectedRelation.sourceFile ? (
+                  <button type="button" onClick={() => navigate(`/editor/${encodeURIComponent(selectedRelation.sourceFile ?? '')}`)}>
+                    {t('laravelSchema.openSource')}
+                  </button>
+                ) : null}
+              </aside>
+            </div>
+          ) : null}
         </>
       ) : null}
     </div>

@@ -1084,6 +1084,29 @@ tr:hover { background: var(--panel-2); }
 .laravel-schema-chart-box {
   height: 560px;
 }
+.laravel-schema-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.laravel-schema-filter-summary {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.laravel-schema-filter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .laravel-schema-guide-grid {
   gap: 12px;
 }
@@ -1158,6 +1181,38 @@ tr:hover { background: var(--panel-2); }
 .laravel-schema-column-list {
   max-width: 520px;
   white-space: normal;
+  overflow-wrap: anywhere;
+}
+.laravel-schema-relation-drawer {
+  width: min(560px, 100vw);
+}
+.laravel-schema-relation-label {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.laravel-schema-relation-details {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.laravel-schema-relation-details div {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.laravel-schema-relation-details dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.laravel-schema-relation-details dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   overflow-wrap: anywhere;
 }
 .relations-chart-box {
