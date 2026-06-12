@@ -1236,8 +1236,16 @@ tr:hover { background: var(--panel-2); }
 .duplicates-setting-field {
   gap: 6px;
 }
-.duplicates-number-input {
-  width: 88px;
+.duplicates-range-input {
+  width: clamp(160px, 22vw, 260px);
+  padding: 0;
+  accent-color: var(--accent);
+}
+.duplicates-range-value {
+  min-width: 38px;
+  color: var(--text);
+  font-weight: 700;
+  text-align: right;
 }
 .heatmap-chart-box {
   height: 360px;

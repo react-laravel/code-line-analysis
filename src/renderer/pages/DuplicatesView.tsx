@@ -9,6 +9,9 @@ interface Props {
   scanRevision: number;
 }
 
+const DUPLICATE_MIN_LINES_MIN = 3;
+const DUPLICATE_MIN_LINES_MAX = 200;
+
 function getDuplicateRuleErrorMessage(error: unknown, fallback: string, unavailable: string): string {
   const message = error instanceof Error ? error.message : String(error ?? '');
   if (/No handler registered|setDuplicateRules is not a function|getDuplicateRules is not a function/i.test(message)) {
@@ -27,7 +30,7 @@ function normalizeRules(value: FolderRules | null | undefined): FolderRules {
 export default function DuplicatesView({ folder, scanRevision }: Props) {
   const [clusters, setClusters] = useState<DuplicateCluster[]>([]);
   const [duplicateMinLines, setDuplicateMinLines] = useState(8);
-  const [duplicateMinLinesText, setDuplicateMinLinesText] = useState('8');
+  const [duplicateMinLinesDraft, setDuplicateMinLinesDraft] = useState(8);
   const [applying, setApplying] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [duplicateRules, setDuplicateRules] = useState<FolderRules>({ whitelist: [], blacklist: [] });
@@ -56,7 +59,7 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
     if (!folder) return;
     void window.api.folders.getDuplicateMinLines(folder.id).then(count => {
       setDuplicateMinLines(count);
-      setDuplicateMinLinesText(String(count));
+      setDuplicateMinLinesDraft(Math.max(DUPLICATE_MIN_LINES_MIN, count));
     }).catch(() => undefined);
   }, [folder?.id]);
 
@@ -88,19 +91,14 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
     });
   }, [duplicateRuleApisAvailable, folder?.id, t]);
 
-  const parsedDuplicateMinLines = Number(duplicateMinLinesText);
-  const duplicateMinLinesError = Number.isInteger(parsedDuplicateMinLines) && parsedDuplicateMinLines >= 3
-    ? null
-    : t('settings.duplicateMinLinesError');
-
   async function applyDuplicateMinLines(nextValue: number): Promise<void> {
     if (!folder) return;
-    if (!Number.isInteger(nextValue) || nextValue < 3 || nextValue === duplicateMinLines) return;
+    if (!Number.isInteger(nextValue) || nextValue < DUPLICATE_MIN_LINES_MIN || nextValue === duplicateMinLines) return;
     setApplying(true);
     try {
       await window.api.folders.setDuplicateMinLines(folder.id, nextValue);
       setDuplicateMinLines(nextValue);
-      setDuplicateMinLinesText(String(nextValue));
+      setDuplicateMinLinesDraft(nextValue);
       await loadClusters(folder.id);
     } finally {
       setApplying(false);
@@ -108,17 +106,12 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
   }
 
   useEffect(() => {
-    if (!folder || duplicateMinLinesError || parsedDuplicateMinLines === duplicateMinLines) return;
+    if (!folder || duplicateMinLinesDraft === duplicateMinLines) return;
     const timer = window.setTimeout(() => {
-      void applyDuplicateMinLines(parsedDuplicateMinLines);
+      void applyDuplicateMinLines(duplicateMinLinesDraft);
     }, 550);
     return () => window.clearTimeout(timer);
-  }, [duplicateMinLines, duplicateMinLinesError, folder, parsedDuplicateMinLines]);
-
-  function bumpDuplicateMinLines(delta: number): void {
-    const nextValue = Math.max(3, duplicateMinLines + delta);
-    setDuplicateMinLinesText(String(nextValue));
-  }
+  }, [duplicateMinLines, duplicateMinLinesDraft, folder]);
 
   async function saveDuplicateRules(): Promise<void> {
     if (!folder) return;
@@ -197,31 +190,37 @@ export default function DuplicatesView({ folder, scanRevision }: Props) {
 
   if (!folder) return <div className="empty">{t('common.selectFolder')}</div>;
 
+  const duplicateMinLinesMax = Math.max(DUPLICATE_MIN_LINES_MAX, duplicateMinLines, duplicateMinLinesDraft);
+
   return (
     <div className="duplicates-page">
       <PageHeader
-        title={t('duplicates.title', { count: duplicateMinLines.toLocaleString(locale) })}
+        title={t('duplicates.title', { count: duplicateMinLinesDraft.toLocaleString(locale) })}
         description={t('duplicates.help')}
         actions={(
           <div className="duplicates-toolbar">
             <label className="page-select-field duplicates-setting-field">
               <span>{t('duplicates.minLines')}</span>
-              <button type="button" onClick={() => bumpDuplicateMinLines(-1)} disabled={applying || duplicateMinLines <= 3}>-</button>
               <input
-                type="number"
-                min={3}
+                type="range"
+                min={DUPLICATE_MIN_LINES_MIN}
+                max={duplicateMinLinesMax}
                 step={1}
-                value={duplicateMinLinesText}
-                onChange={event => setDuplicateMinLinesText(event.target.value)}
-                className="duplicates-number-input"
+                value={duplicateMinLinesDraft}
+                onChange={event => setDuplicateMinLinesDraft(Number(event.target.value))}
+                className="duplicates-range-input"
+                aria-label={t('duplicates.minLines')}
               />
-              <button type="button" onClick={() => bumpDuplicateMinLines(1)} disabled={applying}>+</button>
+              <output className="duplicates-range-value">{duplicateMinLinesDraft.toLocaleString(locale)}</output>
             </label>
           </div>
         )}
       />
-      <div className={duplicateMinLinesError ? 'settings-field-note error' : 'settings-field-note'}>
-        {duplicateMinLinesError ?? (applying ? t('duplicates.refreshing') : t('duplicates.settingHelp'))}
+      <div className="settings-field-note">
+        {applying ? t('duplicates.refreshing') : t('duplicates.settingHelp', {
+          min: DUPLICATE_MIN_LINES_MIN.toLocaleString(locale),
+          max: duplicateMinLinesMax.toLocaleString(locale),
+        })}
       </div>
       <div className="duplicates-rules-summary">
         <span className="muted">{t('duplicates.rules')}</span>
