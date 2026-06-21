@@ -118,9 +118,10 @@ export interface TopFile {
   code: number;
   size: number;
   lang: string;
+  lastCommitDate: number | null;
 }
 
-export type TopFileSortKey = 'total' | 'size';
+export type TopFileSortKey = 'total' | 'size' | 'lastCommitDate';
 
 export interface TopFunction {
   relPath: string;
@@ -205,6 +206,7 @@ export interface Api {
   runtime: ApiRuntimeInfo;
   folders: {
     add: (rootPath: string) => Promise<FolderRow>;
+    addGitRepositories: (rootPath: string) => Promise<FolderRow[]>;
     list: () => Promise<FolderRow[]>;
     remove: (id: number) => Promise<void>;
     getRules: (id: number) => Promise<FolderRules>;

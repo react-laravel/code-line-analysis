@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   FOLDERS_ADD: 'folders:add',
+  FOLDERS_ADD_GIT_REPOSITORIES: 'folders:addGitRepositories',
   FOLDERS_LIST: 'folders:list',
   FOLDERS_REMOVE: 'folders:remove',
   FOLDERS_GET_RULES: 'folders:getRules',

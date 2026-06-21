@@ -9,6 +9,7 @@ import { DEFAULT_DUPLICATE_LINES } from '../shared/api';
 import { buildApiRouteOverview } from '../shared/apiRoutes';
 import { buildFileRelationGraph } from '../shared/fileRelations';
 import { buildLaravelSchemaGraph } from '../shared/laravelSchema';
+import { getGitFileInfo } from './git';
 
 type SourceFileForAnalysis = { relPath: string; lang: string; total: number; code: number; content: string };
 
@@ -135,14 +136,29 @@ export function getTree(folderId: number): DirNode {
   return root;
 }
 
-export function getTopFiles(folderId: number, limit = 50, sortBy: TopFileSortKey = 'total'): TopFile[] {
+export async function getTopFiles(folderId: number, limit = 50, sortBy: TopFileSortKey = 'total', rootPath?: string): Promise<TopFile[]> {
   const db = getDb();
   const orderColumn = sortBy === 'size' ? 'size' : 'total';
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT rel_path AS relPath, total, code, size, lang
     FROM files WHERE folder_id = ? AND deleted = 0
     ORDER BY ${orderColumn} DESC LIMIT ?
-  `).all(folderId, limit) as TopFile[];
+  `).all(folderId, limit) as Array<{ relPath: string; total: number; code: number; size: number; lang: string }>;
+
+  if (!rootPath) {
+    return rows.map(row => ({ ...row, lastCommitDate: null }));
+  }
+
+  return Promise.all(rows.map(async row => {
+    let lastCommitDate: number | null = null;
+    try {
+      const info = await getGitFileInfo(rootPath, row.relPath);
+      if (info) lastCommitDate = info.lastDate;
+    } catch {
+      // git info is optional; leave as null on failure
+    }
+    return { ...row, lastCommitDate };
+  }));
 }
 
 export function getTopFunctions(folderId: number, limit = 50): TopFunction[] {

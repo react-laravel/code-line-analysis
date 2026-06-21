@@ -33,6 +33,50 @@ function rowToFolder(r: any): FolderRow {
   return { id: r.id, rootPath: r.root_path, name: r.name, createdAt: r.created_at };
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.stat(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isGitRepository(rootPath: string): Promise<boolean> {
+  return pathExists(path.join(rootPath, '.git'));
+}
+
+async function findDirectGitRepositories(rootPath: string): Promise<string[]> {
+  const stats = await fs.stat(rootPath).catch(error => {
+    throw new Error(`Unable to read selected folder: ${error instanceof Error ? error.message : String(error)}`);
+  });
+  if (!stats.isDirectory()) throw new Error('Not a directory');
+
+  const entries = await fs.readdir(rootPath, { withFileTypes: true }).catch(error => {
+    throw new Error(`Unable to list selected folder: ${error instanceof Error ? error.message : String(error)}`);
+  });
+  const repositories: string[] = [];
+
+  for (const entry of entries) {
+    if (entry.name === '.git') continue;
+
+    const childPath = path.join(rootPath, entry.name);
+    if (!entry.isDirectory()) {
+      if (!entry.isSymbolicLink()) continue;
+      const childStats = await fs.stat(childPath).catch(() => null);
+      if (!childStats?.isDirectory()) continue;
+    }
+
+    try {
+      if (await isGitRepository(childPath)) repositories.push(childPath);
+    } catch {
+      // Skip unreadable direct children instead of failing the whole import.
+    }
+  }
+
+  return repositories.sort((left, right) => left.localeCompare(right));
+}
+
 function ensureInsideRoot(root: string, relPath: string): string {
   const abs = path.resolve(root, relPath);
   const rootResolved = path.resolve(root);
@@ -239,7 +283,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     for (const folderId of Array.from(folderWatchers.keys())) stopFolderWatcher(folderId);
   };
 
-  ipcMain.handle(IPC_CHANNELS.FOLDERS_ADD, (_e, rootPath: string) => {
+  function addFolderRow(rootPath: string): FolderRow {
     const stats = statSync(rootPath);
     if (!stats.isDirectory()) throw new Error('Not a directory');
     const name = path.basename(rootPath);
@@ -248,6 +292,15 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     const row = stmt.get(rootPath, name, now) as { id: number; root_path: string; name: string; created_at: number };
     startFolderWatcher(row.id, row.root_path);
     return rowToFolder(row);
+  }
+
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_ADD, (_e, rootPath: string) => {
+    return addFolderRow(rootPath);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_ADD_GIT_REPOSITORIES, async (_e, rootPath: string): Promise<FolderRow[]> => {
+    const repositories = await findDirectGitRepositories(rootPath);
+    return repositories.map(repositoryPath => addFolderRow(repositoryPath));
   });
 
   ipcMain.handle(IPC_CHANNELS.FOLDERS_LIST, () => {
@@ -326,7 +379,10 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC_CHANNELS.STATS_SUMMARY, (_e, folderId: number) => getSummary(folderId));
   ipcMain.handle(IPC_CHANNELS.STATS_TREE, (_e, folderId: number) => getTree(folderId));
-  ipcMain.handle(IPC_CHANNELS.STATS_TOP_FILES, (_e, folderId: number, limit?: number, sortBy?: TopFileSortKey) => getTopFiles(folderId, limit, sortBy));
+  ipcMain.handle(IPC_CHANNELS.STATS_TOP_FILES, async (_e, folderId: number, limit?: number, sortBy?: TopFileSortKey) => {
+    const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
+    return getTopFiles(folderId, limit, sortBy, folder?.root_path);
+  });
   ipcMain.handle(IPC_CHANNELS.STATS_TOP_FUNCTIONS, (_e, folderId: number, limit?: number) => getTopFunctions(folderId, limit));
   ipcMain.handle(IPC_CHANNELS.STATS_API_ROUTES, async (_e, folderId: number) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;

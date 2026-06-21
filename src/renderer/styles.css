@@ -264,6 +264,70 @@ textarea { font-family: 'Menlo', 'Monaco', monospace; }
   gap: 8px;
   flex-wrap: wrap;
 }
+.add-folder-split-button {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.add-folder-split-button .add-folder-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.add-folder-menu {
+  position: relative;
+}
+.add-folder-menu summary {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 100%;
+  min-height: 31px;
+  list-style: none;
+  cursor: pointer;
+  color: #07120d;
+  background: var(--accent-2);
+  border: 1px solid var(--accent-2);
+  border-left-color: rgba(7, 18, 13, 0.24);
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+.add-folder-menu summary::-webkit-details-marker {
+  display: none;
+}
+.add-folder-menu summary:hover,
+.add-folder-menu[open] summary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.add-folder-menu summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.add-folder-menu summary svg {
+  width: 16px;
+  height: 16px;
+}
+.add-folder-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 228px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.add-folder-menu-popover button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+}
+.add-folder-menu-popover button:hover {
+  background: var(--panel-2);
+}
 .page-select-field {
   display: inline-flex;
   align-items: center;
@@ -571,8 +635,58 @@ tr:hover { background: var(--panel-2); }
   color: var(--muted);
   font: inherit;
   text-transform: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
 }
-.table-sort-button:hover { background: transparent; color: var(--text); }
+.table-sort-button:hover {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: transparent;
+}
+.table-sort-button.active {
+  color: var(--accent);
+  background: rgba(124, 199, 160, 0.08);
+  border-radius: 4px;
+}
+.table-sort-button:active {
+  color: var(--accent);
+  background: var(--panel-3);
+}
+.sort-arrows {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+.commit-sort-button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.commit-sort-button:hover {
+  background: var(--panel-3);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.commit-sort-button.active {
+  background: var(--accent-2);
+  color: #07120d;
+  border-color: var(--accent-2);
+}
+.commit-sort-button.active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
 .filter-panel {
   margin-bottom: 14px;
   padding: 12px;

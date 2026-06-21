@@ -411,6 +411,9 @@ export function createBrowserApi(): Api {
 
         return row;
       },
+      addGitRepositories: async () => {
+        throw new Error('Git repository discovery is only available in the desktop app.');
+      },
       list: async () => Array.from(folders.values()).map(folder => folder.row),
       remove: async (id) => {
         folders.delete(id);
@@ -482,7 +485,7 @@ export function createBrowserApi(): Api {
       topFiles: async (folderId, limit = 50, sortBy = 'total') => {
         const topFiles = folders.get(folderId)?.analysis?.topFiles ?? [];
         const sorted = [...topFiles].sort((left, right) => (sortBy === 'size' ? right.size - left.size : right.total - left.total));
-        return sorted.slice(0, limit);
+        return sorted.slice(0, limit).map(file => ({ ...file, lastCommitDate: null }));
       },
       topFunctions: async (folderId, limit = 50) => (folders.get(folderId)?.analysis?.topFunctions ?? []).slice(0, limit),
       apiRoutes: async (folderId) => {

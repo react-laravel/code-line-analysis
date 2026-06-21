@@ -9,7 +9,7 @@ interface Props {
   scanRevision: number;
 }
 
-type SortKey = 'relPath' | 'total' | 'code' | 'size' | 'lang' | 'ext';
+type SortKey = 'relPath' | 'total' | 'code' | 'size' | 'lang' | 'ext' | 'lastCommitDate';
 
 const NO_EXTENSION = '(none)';
 
@@ -69,6 +69,11 @@ export default function FilesView({ folder, scanRevision }: Props) {
     });
 
     arr.sort((a, b) => {
+      if (sortKey === 'lastCommitDate') {
+        const va = a.lastCommitDate ?? -1;
+        const vb = b.lastCommitDate ?? -1;
+        return asc ? va - vb : vb - va;
+      }
       const va: any = a[sortKey], vb: any = b[sortKey];
       if (typeof va === 'string') return asc ? va.localeCompare(vb, locale) : vb.localeCompare(va, locale);
       return asc ? va - vb : vb - va;
@@ -101,10 +106,16 @@ export default function FilesView({ folder, scanRevision }: Props) {
   }
 
   function header(k: SortKey, label: string) {
+    const active = sortKey === k;
     return (
       <th>
-        <button className="table-sort-button" onClick={() => { if (sortKey === k) setAsc(!asc); else { setSortKey(k); setAsc(false); } }}>
-          {label} {sortKey === k ? (asc ? '↑' : '↓') : ''}
+        <button
+          className={'table-sort-button' + (active ? ' active' : '')}
+          onClick={() => { if (sortKey === k) setAsc(!asc); else { setSortKey(k); setAsc(false); } }}
+          title={active ? (asc ? t('common.close') + ' / ' : '') + (asc ? 'Ascending' : 'Descending') : 'Sort by ' + label}
+        >
+          {label}
+          <span className="sort-arrows">{active ? (asc ? ' ▲' : ' ▼') : ' ⇅'}</span>
         </button>
       </th>
     );
@@ -167,6 +178,7 @@ export default function FilesView({ folder, scanRevision }: Props) {
           {header('total', t('common.lines'))}
           {header('code', t('common.code'))}
           {header('size', t('common.size'))}
+          {header('lastCommitDate', t('files.lastCommitDate'))}
         </tr></thead>
         <tbody>
           {filtered.slice(0, 1000).map(f => (
@@ -184,6 +196,7 @@ export default function FilesView({ folder, scanRevision }: Props) {
               <td>{f.total.toLocaleString(locale)}</td>
               <td>{f.code.toLocaleString(locale)}</td>
               <td>{(f.size / 1024).toFixed(1)} KB</td>
+              <td>{f.lastCommitDate ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(f.lastCommitDate) : '—'}</td>
             </tr>
           ))}
         </tbody>

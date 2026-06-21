@@ -198,6 +198,13 @@ export default function App() {
     }));
   }, []);
 
+  const scanAddedFolder = useCallback((folderId: number) => {
+    autoScannedFolderIdsRef.current.add(folderId);
+    void window.api.scan.run(folderId, { detectDuplicates: true }).catch(() => {
+      autoScannedFolderIdsRef.current.delete(folderId);
+    });
+  }, []);
+
   const handleAddFolder = useCallback(async () => {
     const token = await window.api.folders.pickDirectory();
     if (!token) return;
@@ -206,11 +213,42 @@ export default function App() {
     await refreshFolders();
     setActiveId(folder.id);
     navigate('/dashboard');
-    autoScannedFolderIdsRef.current.add(folder.id);
-    void window.api.scan.run(folder.id, { detectDuplicates: true }).catch(() => {
-      autoScannedFolderIdsRef.current.delete(folder.id);
-    });
-  }, [navigate, refreshFolders]);
+    scanAddedFolder(folder.id);
+  }, [navigate, refreshFolders, scanAddedFolder]);
+
+  const handleAddGitRepositories = useCallback(async () => {
+    const token = await window.api.folders.pickDirectory();
+    if (!token) return;
+
+    let addedFolders: FolderRow[];
+    try {
+      if (typeof window.api.folders.addGitRepositories !== 'function') {
+        alert(t('workspace.addGitRepositoriesRestartRequired'));
+        return;
+      }
+
+      addedFolders = await window.api.folders.addGitRepositories(token);
+      if (addedFolders.length === 0) {
+        alert(t('workspace.noGitRepositoriesFound'));
+        return;
+      }
+    } catch (error) {
+      console.error('Add Git repositories failed:', error);
+      const detail = error instanceof Error ? error.message : String(error ?? '');
+      if (detail.includes('No handler registered') || detail.includes('folders:addGitRepositories')) {
+        alert(t('workspace.addGitRepositoriesRestartRequired'));
+        return;
+      }
+      alert(t('workspace.addGitRepositoriesFailed', { detail: detail || '-' }));
+      return;
+    }
+
+    await refreshFolders();
+    setActiveId(addedFolders[0].id);
+    navigate('/dashboard');
+    for (const folder of addedFolders) scanAddedFolder(folder.id);
+    alert(t('workspace.gitRepositoriesAdded', { count: addedFolders.length }));
+  }, [navigate, refreshFolders, scanAddedFolder, t]);
 
   const handleImportDroppedFolder = useCallback(async (dataTransfer: DataTransfer) => {
     const token = await stageDroppedFolderImport(dataTransfer);
@@ -220,11 +258,8 @@ export default function App() {
     await refreshFolders();
     setActiveId(folder.id);
     navigate('/dashboard');
-    autoScannedFolderIdsRef.current.add(folder.id);
-    void window.api.scan.run(folder.id, { detectDuplicates: true }).catch(() => {
-      autoScannedFolderIdsRef.current.delete(folder.id);
-    });
-  }, [navigate, refreshFolders]);
+    scanAddedFolder(folder.id);
+  }, [navigate, refreshFolders, scanAddedFolder]);
 
   const handleOpenFolder = useCallback((folderId: number) => {
     setActiveId(folderId);
@@ -384,6 +419,7 @@ export default function App() {
                 folders={folders}
                 activeId={activeId}
                 onAddFolder={handleAddFolder}
+                onAddGitRepositories={handleAddGitRepositories}
                 onImportDroppedFolder={handleImportDroppedFolder}
                 onOpenFolder={handleOpenFolder}
                 onRemoveFolder={handleRemoveFolder}

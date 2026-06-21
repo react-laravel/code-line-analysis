@@ -656,6 +656,7 @@ export async function analyzeBrowserFolder(options: AnalyzeOptions): Promise<Bro
       code: file.meta.code,
       size: file.meta.size,
       lang: file.meta.lang,
+      lastCommitDate: null as number | null,
     }))
     .sort((left, right) => right.total - left.total);
   const topFunctions = files

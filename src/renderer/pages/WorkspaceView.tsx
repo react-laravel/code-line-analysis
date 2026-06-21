@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { FolderRow, GitRepoInfo } from '../../shared/api';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
@@ -8,18 +8,64 @@ interface Props {
   folders: FolderRow[];
   activeId: number | null;
   onAddFolder: () => Promise<void>;
+  onAddGitRepositories: () => Promise<void>;
   onImportDroppedFolder?: (dataTransfer: DataTransfer) => Promise<void>;
   onOpenFolder: (folderId: number) => void;
   onRemoveFolder: (folder: FolderRow) => Promise<void>;
   webMode: boolean;
 }
 
-export default function WorkspaceView({ folders, activeId, onAddFolder, onImportDroppedFolder, onOpenFolder, onRemoveFolder, webMode }: Props) {
+function AddFolderActions({
+  onAddFolder,
+  onAddGitRepositories,
+  webMode,
+}: {
+  onAddFolder: () => Promise<void>;
+  onAddGitRepositories: () => Promise<void>;
+  webMode: boolean;
+}) {
+  const { t } = useI18n();
+
+  if (webMode) {
+    return <button className="primary" onClick={() => void onAddFolder()}>{t('app.addFolder')}</button>;
+  }
+
+  return (
+    <div className="add-folder-split-button">
+      <button className="primary add-folder-main" onClick={() => void onAddFolder()}>
+        {t('app.addFolder')}
+      </button>
+      <details className="add-folder-menu">
+        <summary aria-label={t('workspace.addFolderOptions')} title={t('workspace.addFolderOptions')}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path fill="currentColor" d="M4.2 6.2a.75.75 0 0 1 1.06 0L8 8.94l2.74-2.74a.75.75 0 1 1 1.06 1.06l-3.27 3.27a.75.75 0 0 1-1.06 0L4.2 7.26a.75.75 0 0 1 0-1.06Z" />
+          </svg>
+        </summary>
+        <div className="add-folder-menu-popover">
+          <button
+            type="button"
+            onClick={event => {
+              const details = event.currentTarget.closest('details');
+              if (details instanceof HTMLDetailsElement) details.open = false;
+              void onAddGitRepositories();
+            }}
+          >
+            {t('workspace.addGitRepositories')}
+          </button>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGitRepositories, onImportDroppedFolder, onOpenFolder, onRemoveFolder, webMode }: Props) {
   const { locale, t } = useI18n();
   const [repoInfoByFolder, setRepoInfoByFolder] = useState<Record<number, GitRepoInfo | null>>({});
   const [dragActive, setDragActive] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
+  const [sortByCommit, setSortByCommit] = useState(false);
+  const [commitSortAsc, setCommitSortAsc] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,13 +157,36 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onImport
     void importFromDrop(event.dataTransfer);
   }
 
+  const sortedFolders = useMemo(() => {
+    if (!sortByCommit) return folders;
+    return [...folders].sort((a, b) => {
+      const da = repoInfoByFolder[a.id]?.lastCommitDate ?? null;
+      const db2 = repoInfoByFolder[b.id]?.lastCommitDate ?? null;
+      if (da === null && db2 === null) return 0;
+      if (da === null) return 1;
+      if (db2 === null) return -1;
+      return commitSortAsc ? da - db2 : db2 - da;
+    });
+  }, [folders, sortByCommit, commitSortAsc, repoInfoByFolder]);
+
   return (
     <div>
       <PageHeader
         title={t('workspace.title')}
         description={t('workspace.subtitle')}
         meta={t('workspace.folderCount', { count: folders.length.toLocaleString(locale) })}
-        actions={<button className="primary" onClick={onAddFolder}>{t('app.addFolder')}</button>}
+        actions={(
+          <>
+            <button
+              className={'commit-sort-button' + (sortByCommit ? ' active' : '')}
+              onClick={() => { setSortByCommit(!sortByCommit); if (sortByCommit) setCommitSortAsc(!commitSortAsc); }}
+              title={sortByCommit ? (commitSortAsc ? t('workspace.sortOldestFirst') : t('workspace.sortNewestFirst')) : t('workspace.sortByCommitTitle')}
+            >
+              {t('workspace.sortByCommit')} {sortByCommit ? (commitSortAsc ? ' ▲' : ' ▼') : ''}
+            </button>
+            <AddFolderActions onAddFolder={onAddFolder} onAddGitRepositories={onAddGitRepositories} webMode={webMode} />
+          </>
+        )}
       />
 
       {webMode && (
@@ -143,15 +212,15 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onImport
         </section>
       )}
 
-      {folders.length === 0 ? (
+      {sortedFolders.length === 0 ? (
         <EmptyState
           title={t('workspace.emptyTitle')}
           description={t('workspace.addFirst')}
-          action={<button className="primary" onClick={onAddFolder}>{t('app.addFolder')}</button>}
+          action={<AddFolderActions onAddFolder={onAddFolder} onAddGitRepositories={onAddGitRepositories} webMode={webMode} />}
         />
       ) : (
         <div className="workspace-grid">
-          {folders.map(folder => (
+          {sortedFolders.map(folder => (
             <article
               key={folder.id}
               className={folder.id === activeId ? 'workspace-folder-card active' : 'workspace-folder-card'}
