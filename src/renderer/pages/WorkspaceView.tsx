@@ -46,6 +46,24 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onImport
     return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(value);
   }
 
+  function daysSinceCommit(value: number | null | undefined): number | null {
+    if (!value) return null;
+    return Math.floor((Date.now() - value) / 86400000);
+  }
+
+  function formatDaysAgo(days: number | null): string | null {
+    if (days === null) return null;
+    if (days === 0) return t('workspace.daysAgo_one', { count: 0 });
+    return t('workspace.daysAgo', { count: days });
+  }
+
+  function commitStaleClass(days: number | null): string {
+    if (days === null) return '';
+    if (days <= 7) return 'commit-fresh';
+    if (days <= 30) return 'commit-warn';
+    return 'commit-stale';
+  }
+
   function formatRemoteLabel(url: string): string {
     try {
       const parsed = new URL(url);
@@ -171,7 +189,15 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onImport
               <div className="workspace-folder-footer">
                 <div className="workspace-folder-commit">
                   <span className="workspace-folder-meta-label">{t('workspace.lastCommit')}</span>
-                  <span className="workspace-folder-meta-value">{formatCommitDate(repoInfoByFolder[folder.id]?.lastCommitDate)}</span>
+                  <div className="workspace-folder-commit-row">
+                    <span className="workspace-folder-meta-value">{formatCommitDate(repoInfoByFolder[folder.id]?.lastCommitDate)}</span>
+                    {(() => {
+                      const days = daysSinceCommit(repoInfoByFolder[folder.id]?.lastCommitDate);
+                      const label = formatDaysAgo(days);
+                      if (!label) return null;
+                      return <span className={`workspace-commit-age ${commitStaleClass(days)}`}>{label}</span>;
+                    })()}
+                  </div>
                 </div>
                 <button onClick={() => onOpenFolder(folder.id)}>{t('workspace.openFolder')}</button>
               </div>
