@@ -563,6 +563,111 @@ function buildRouteAnalysisChart(routes: ApiRouteEntry[], groupDepth: number, t:
   };
 }
 
+function allSame<T>(arr: T[]): boolean {
+  if (arr.length <= 1) return true;
+  return arr.every(item => item === arr[0]);
+}
+
+function buildColumnPlan(
+  routes: ApiRouteEntry[],
+  groupDepth: number | null,
+  t: ReturnType<typeof useI18n>['t'],
+): { header: string; key: string; render: (route: ApiRouteEntry) => React.ReactNode; summary?: React.ReactNode }[] {
+  if (routes.length === 0) return [];
+
+  const methods = routes.map(route => route.methods.join(','));
+  const handlers = routes.map(route => route.handler);
+  const routeNames = routes.map(route => route.routeName ?? '-');
+  const sources = routes.map(route => route.sourceFile);
+
+  const plan: { header: string; key: string; render: (route: ApiRouteEntry) => React.ReactNode; summary?: React.ReactNode }[] = [
+    { header: t('apiRoutes.path'), key: 'path', render: route => <span className="mono">{tailPath(route.path, groupDepth)}</span> },
+    { header: t('apiRoutes.source'), key: 'source', render: route => <span className="mono">{route.sourceFile}</span> },
+  ];
+
+  if (!allSame(methods)) {
+    plan.unshift({
+      header: t('apiRoutes.methods'),
+      key: 'methods',
+      render: route => (
+        <div className="api-method-list">
+          {route.methods.map(method => (
+            <span key={method} className={methodChipClass(method)}>{methodLabel(method, t)}</span>
+          ))}
+        </div>
+      ),
+    });
+  } else if (methods.length > 0) {
+    const sample = routes[0].methods;
+    plan.unshift({
+      header: t('apiRoutes.methods'),
+      key: 'methods',
+      render: () => (
+        <div className="api-method-list">
+          {sample.map(method => (
+            <span key={method} className={methodChipClass(method)}>{methodLabel(method, t)}</span>
+          ))}
+        </div>
+      ),
+      summary: (
+        <span className="status-pill">
+          {t('apiRoutes.methods')}: {sample.map(method => methodLabel(method, t)).join(', ')}
+        </span>
+      ),
+    });
+  }
+
+  if (!allSame(handlers)) {
+    plan.splice(plan.findIndex(col => col.key === 'path'), 0, {
+      header: t('apiRoutes.handler'),
+      key: 'handler',
+      render: route => <span className="mono">{route.handler}</span>,
+    });
+  } else if (handlers.length > 0) {
+    const sample = routes[0].handler;
+    plan.splice(plan.findIndex(col => col.key === 'path'), 0, {
+      header: t('apiRoutes.handler'),
+      key: 'handler',
+      render: () => <span className="mono">{sample}</span>,
+      summary: <span className="status-pill">{t('apiRoutes.handler')}: {sample}</span>,
+    });
+  }
+
+  if (!allSame(routeNames)) {
+    plan.splice(plan.findIndex(col => col.key === 'path') + 1, 0, {
+      header: t('apiRoutes.routeName'),
+      key: 'routeName',
+      render: route => <span className="mono">{route.routeName ?? '-'}</span>,
+    });
+  } else if (routeNames.length > 0 && routeNames[0] !== '-') {
+    const sample = routes[0].routeName!;
+    plan.splice(plan.findIndex(col => col.key === 'path') + 1, 0, {
+      header: t('apiRoutes.routeName'),
+      key: 'routeName',
+      render: () => <span className="mono">{sample}</span>,
+      summary: <span className="status-pill">{t('apiRoutes.routeName')}: {sample}</span>,
+    });
+  }
+
+  if (!allSame(sources)) {
+    plan.splice(plan.length, 0, {
+      header: t('apiRoutes.source'),
+      key: 'source',
+      render: route => <span className="mono">{route.sourceFile}</span>,
+    });
+  } else if (sources.length > 0) {
+    const sample = routes[0].sourceFile;
+    plan.push({
+      header: t('apiRoutes.source'),
+      key: 'source',
+      render: () => <span className="mono">{sample}</span>,
+      summary: <span className="status-pill">{t('apiRoutes.source')}: {sample}</span>,
+    });
+  }
+
+  return plan;
+}
+
 function RouteTable({
   routes,
   groupDepth,
@@ -576,40 +681,43 @@ function RouteTable({
   onOpen: (sourceFile: string) => void;
   t: ReturnType<typeof useI18n>['t'];
 }) {
-  return (
-    <div className="table-wrap">
-      <table className="api-routes-table">
-        <thead>
-          <tr>
-            <th>{t('apiRoutes.methods')}</th>
-            <th>{t('apiRoutes.path')}</th>
-            <th>{t('apiRoutes.handler')}</th>
-            <th>{t('apiRoutes.routeName')}</th>
-            <th>{t('apiRoutes.source')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {routes.map(route => {
-            const pathLabel = tailPath(route.path, groupDepth);
+  const columnPlan = useMemo(() => buildColumnPlan(routes, groupDepth, t), [routes, groupDepth, t]);
+  const summaryItems = columnPlan.filter(col => col.summary);
 
-            return (
-              <tr key={routeKey(route)} className="clickable-row" onClick={() => onOpen(route.sourceFile)}>
-                <td>
-                  <div className="api-method-list">
-                    {route.methods.map(method => (
-                      <span key={method} className={methodChipClass(method)}>{methodLabel(method, t)}</span>
-                    ))}
-                  </div>
-                </td>
-                <td className="mono">{pathLabel}</td>
-                <td className="mono">{route.handler}</td>
-                <td className="mono">{route.routeName ?? '-'}</td>
-                <td className="mono">{route.sourceFile}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+  return (
+    <div>
+      {summaryItems.length > 0 && (
+        <div className="api-routes-summary-bar" style={{ marginBottom: 8 }}>
+          <div className="flex flex-wrap gap-2">
+            {summaryItems.map(col => (
+              <span key={col.key}>{col.summary}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="table-wrap">
+        <table className="api-routes-table">
+          <thead>
+            <tr>
+              {columnPlan.filter(col => !col.summary).map(col => (
+                <th key={col.key}>{col.header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {routes.map(route => {
+              const pathLabel = tailPath(route.path, groupDepth);
+              return (
+                <tr key={routeKey(route)} className="clickable-row" onClick={() => onOpen(route.sourceFile)}>
+                  {columnPlan.filter(col => !col.summary).map(col => (
+                    <td key={col.key}>{col.render(route)}</td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1104,8 +1212,12 @@ export default function ApiRoutesView({ folder, scanRevision }: Props) {
           <div className="cards api-routes-cards">
             <div className="card metric-card"><div className="label">{t('apiRoutes.routes')}</div><div className="value">{overview.routes.length.toLocaleString(locale)}</div></div>
             <div className="card metric-card"><div className="label">{t('apiRoutes.frameworks')}</div><div className="value">{overview.frameworks.length.toLocaleString(locale)}</div></div>
-            <div className="card metric-card"><div className="label">{t('apiRoutes.laravelFiles')}</div><div className="value">{overview.laravelRouteFiles.toLocaleString(locale)}</div></div>
-            <div className="card metric-card"><div className="label">{t('apiRoutes.nextFiles')}</div><div className="value">{overview.nextRouteFiles.toLocaleString(locale)}</div></div>
+            {overview.frameworks.some(fw => fw === 'laravel') && (
+              <div className="card metric-card"><div className="label">{t('apiRoutes.laravelFiles')}</div><div className="value">{overview.laravelRouteFiles.toLocaleString(locale)}</div></div>
+            )}
+            {(overview.frameworks.includes('next-app') || overview.frameworks.includes('next-pages')) && (
+              <div className="card metric-card"><div className="label">{t('apiRoutes.nextFiles')}</div><div className="value">{overview.nextRouteFiles.toLocaleString(locale)}</div></div>
+            )}
           </div>
 
           {overview.warnings.length > 0 ? (

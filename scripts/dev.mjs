@@ -90,8 +90,8 @@ const rendererUrl = `http://127.0.0.1:${rendererPort}`;
 
 console.log(`[dev] starting renderer on ${rendererUrl}`);
 
-spawnNpm('renderer', ['run', 'dev:renderer', '--', '--host', '127.0.0.1', '--port', String(rendererPort), '--strictPort']);
-spawnNpm('main', ['run', 'dev:main']);
+spawnNpm('renderer', ['run', 'dev:renderer', '--', '--host', '127.0.0.1', '--port', String(rendererPort), '--strictPort'], { NODE_OPTIONS: '--no-warnings' });
+spawnNpm('main', ['run', 'dev:main'], { NODE_OPTIONS: '--no-warnings' });
 
 try {
   await waitOn({
