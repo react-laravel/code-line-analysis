@@ -1,0 +1,35 @@
+name: Deploy (Self-hosted)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ensure Deployer phar present
+        run: |
+          set -euo pipefail
+          DEP_BIN="$HOME/.deployer/dep.phar"
+          DEP_VERSION="7.5.7"
+          if [ ! -f "$DEP_BIN" ]; then
+            mkdir -p "$(dirname "$DEP_BIN")"
+            curl -fsSL "https://deployer.org/releases/v${DEP_VERSION}/deployer.phar" -o "$DEP_BIN"
+            chmod +x "$DEP_BIN"
+          fi
+          php "$DEP_BIN" --version
+
+      - name: Deploy production
+        env:
+          DEPLOY_PATH: /var/www/code-line-analysis
+          VERIFY_BASE_URL: https://code-line.dogeow.com
+          RUNNER_TRACKING_ID: ""
+        run: php "$HOME/.deployer/dep.phar" deploy production -v
