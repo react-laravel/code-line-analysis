@@ -6,6 +6,7 @@ import EChartsPanel from '../components/EChartsPanel';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import { useI18n } from '../i18n';
+import { escapeHtml } from '../utils/escapeHtml';
 
 interface Props {
   folder: FolderRow | null;
@@ -174,15 +175,15 @@ export default function LaravelSchemaView({ folder, scanRevision }: Props) {
       formatter: params => {
         if (params.dataType === 'edge') {
           const data = params.data as { kind: string; label?: string };
-          return data.label ?? data.kind;
+          return escapeHtml(data.label ?? data.kind);
         }
 
         const data = params.data as { name: string; tableName: string; modelClass: string | null; relations: number };
         return [
-          data.name,
+          escapeHtml(data.name),
           `${t('laravelSchema.relations')}: ${data.relations.toLocaleString(locale)}`,
-          data.modelClass ? `${t('laravelSchema.model')}: ${data.modelClass}` : '',
-          !data.modelClass ? `${t('laravelSchema.table')}: ${data.tableName}` : '',
+          data.modelClass ? `${t('laravelSchema.model')}: ${escapeHtml(data.modelClass)}` : '',
+          !data.modelClass ? `${t('laravelSchema.table')}: ${escapeHtml(data.tableName)}` : '',
         ].filter(Boolean).join('<br/>');
       },
     },

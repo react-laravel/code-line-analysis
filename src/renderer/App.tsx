@@ -1,5 +1,25 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { NavLink, Routes, Route, useNavigate } from 'react-router-dom';
+import { NavLink, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import {
+  BarChart3,
+  Braces,
+  CircleAlert,
+  Copy,
+  Database,
+  Files,
+  FolderCog,
+  FolderKanban,
+  FolderOpen,
+  FolderTree,
+  GitBranch,
+  Globe2,
+  ListTree,
+  Route as RouteIcon,
+  Settings,
+  Share2,
+  Tags,
+  X,
+} from 'lucide-react';
 import { DEFAULT_BLACKLIST, type FolderRow, type FolderRules, type FolderStats, type ScanProgress } from '../shared/api';
 import Dashboard from './pages/Dashboard';
 import FolderManager from './pages/FolderManager';
@@ -18,20 +38,21 @@ import { useI18n, type Language } from './i18n';
 import { isWebRuntime, stageDroppedFolderImport } from './runtime';
 
 const primaryNavItems = [
-  { to: '/dashboard', labelKey: 'nav.dashboard' },
-  { to: '/folders', labelKey: 'nav.folderManager' },
+  { to: '/', labelKey: 'nav.workspace', icon: FolderKanban },
+  { to: '/dashboard', labelKey: 'nav.dashboard', icon: BarChart3 },
+  { to: '/folders', labelKey: 'nav.folderManager', icon: FolderCog },
 ] as const;
 
 const analysisNavItems = [
-  { to: '/tree', labelKey: 'nav.tree' },
-  { to: '/files', labelKey: 'nav.files' },
-  { to: '/top', labelKey: 'nav.top' },
-  { to: '/heatmap', labelKey: 'nav.heatmap' },
-  { to: '/api-routes', labelKey: 'nav.apiRoutes' },
-  { to: '/relations', labelKey: 'nav.relations' },
-  { to: '/laravel-schema', labelKey: 'nav.laravelSchema' },
-  { to: '/tags', labelKey: 'nav.tags' },
-  { to: '/duplicates', labelKey: 'nav.duplicates' },
+  { to: '/tree', labelKey: 'nav.tree', icon: FolderTree },
+  { to: '/files', labelKey: 'nav.files', icon: Files },
+  { to: '/top', labelKey: 'nav.top', icon: Braces },
+  { to: '/heatmap', labelKey: 'nav.heatmap', icon: GitBranch },
+  { to: '/api-routes', labelKey: 'nav.apiRoutes', icon: RouteIcon },
+  { to: '/relations', labelKey: 'nav.relations', icon: Share2 },
+  { to: '/laravel-schema', labelKey: 'nav.laravelSchema', icon: Database },
+  { to: '/tags', labelKey: 'nav.tags', icon: Tags },
+  { to: '/duplicates', labelKey: 'nav.duplicates', icon: Copy },
 ] as const;
 
 function normalizeRules(value: FolderRules | null | undefined): FolderRules {
@@ -60,6 +81,7 @@ export default function App() {
   const settingsCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const autoScannedFolderIdsRef = useRef<Set<number>>(new Set());
   const navigate = useNavigate();
+  const location = useLocation();
   const { language, languageOptions, locale, setLanguage, t } = useI18n();
 
   const refreshFolders = useCallback(async () => {
@@ -71,7 +93,11 @@ export default function App() {
     });
   }, []);
 
-  useEffect(() => { refreshFolders(); }, [refreshFolders]);
+  useEffect(() => {
+    void refreshFolders();
+    const timer = window.setInterval(() => void refreshFolders(), 5000);
+    return () => window.clearInterval(timer);
+  }, [refreshFolders]);
 
   useEffect(() => {
     const off = window.api.scan.onProgress(p => setProgress(p));
@@ -104,7 +130,8 @@ export default function App() {
 
   useEffect(() => {
     if (activeId == null) return;
-    if (!folders.some(folder => folder.id === activeId)) return;
+    const folder = folders.find(item => item.id === activeId);
+    if (!folder?.isAvailable) return;
     if (autoScannedFolderIdsRef.current.has(activeId)) return;
 
     autoScannedFolderIdsRef.current.add(activeId);
@@ -272,6 +299,21 @@ export default function App() {
     await refreshFolders();
   }, [refreshFolders, t]);
 
+  const handleRelocateFolder = useCallback(async (folder: FolderRow) => {
+    const rootPath = await window.api.folders.pickDirectory();
+    if (!rootPath) return;
+
+    try {
+      const relocated = await window.api.folders.relocate(folder.id, rootPath);
+      await refreshFolders();
+      setActiveId(relocated.id);
+      scanAddedFolder(relocated.id);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error ?? '');
+      alert(t('workspace.relocateFailed', { detail: detail || '-' }));
+    }
+  }, [refreshFolders, scanAddedFolder, t]);
+
   const handleSelectFolder = useCallback((folderId: string) => {
     if (folderId === '') {
       setActiveId(null);
@@ -304,7 +346,7 @@ export default function App() {
     } finally {
       setGlobalRulesSaving(false);
     }
-  }, [globalBlackText, globalWhiteText]);
+  }, [globalBlackText, globalWhiteText, t]);
 
   const handleCancelScan = useCallback(() => {
     void window.api.scan.cancel().catch(() => undefined);
@@ -322,7 +364,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand-block">
           <div className="brand-mark">CL</div>
-          <div>
+          <div className="brand-copy">
             <div className="brand-name">Code Line Analysis</div>
             <div className="brand-kicker">{t('app.productKicker')}</div>
           </div>
@@ -338,15 +380,31 @@ export default function App() {
               onChange={e => handleSelectFolder(e.target.value)}
             >
               <option value="">{t('app.selectFolder')}</option>
-              {folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+              {folders.map(folder => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.name}{folder.isAvailable ? '' : ` · ${t('workspace.missingShort')}`}
+                </option>
+              ))}
             </select>
+            {active && (
+              <div className={active.isAvailable ? 'sidebar-workspace-status' : 'sidebar-workspace-status missing'}>
+                <span className="status-dot" aria-hidden="true" />
+                <span className="sidebar-workspace-path">{active.isAvailable ? active.rootPath : t('workspace.locationMissing')}</span>
+                {!active.isAvailable && !webMode ? (
+                  <button type="button" className="sidebar-relocate-button" onClick={() => void handleRelocateFolder(active)}>
+                    {t('workspace.relocate')}
+                  </button>
+                ) : null}
+              </div>
+            )}
           </section>
 
           <nav className="sidebar-nav" aria-label={t('app.views')}>
             <section className="sidebar-section">
               <div className="section-label">{t('app.navPrimary')}</div>
               {primaryNavItems.map(item => (
-                <NavLink key={item.to} to={item.to} className={navClassName}>
+                <NavLink key={item.to} to={item.to} end={item.to === '/'} className={navClassName}>
+                  <item.icon className="nav-link-icon" aria-hidden="true" />
                   <span className="nav-link-label">{t(item.labelKey)}</span>
                 </NavLink>
               ))}
@@ -356,6 +414,7 @@ export default function App() {
               <div className="section-label">{t('app.navAnalysis')}</div>
               {analysisNavItems.map(item => (
                 <NavLink key={item.to} to={item.to} className={navClassName}>
+                  <item.icon className="nav-link-icon" aria-hidden="true" />
                   <span className="nav-link-label">{t(item.labelKey)}</span>
                   {item.to === '/tags' && activeTagCount != null ? (
                     <span className="nav-link-badge">{activeTagCount.toLocaleString(locale)}</span>
@@ -399,19 +458,27 @@ export default function App() {
             title={t('app.settings')}
             onClick={() => setSettingsOpen(true)}
           >
-            <svg className="settings-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.48.48 0 0 0 .11-.61l-1.92-3.32a.5.5 0 0 0-.58-.22l-2.39.96a7.14 7.14 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.49.41l-.36 2.54c-.58.22-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.58.22L2.73 8.47a.48.48 0 0 0 .11.61l2.03 1.58c-.05.31-.07.63-.07.94s.02.63.07.94l-2.03 1.58a.48.48 0 0 0-.11.61l1.92 3.32c.13.22.39.31.58.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.25.41.49.41h3.8c.24 0 .44-.17.49-.41l.36-2.54c.58-.22 1.12-.54 1.63-.94l2.39.96c.19.09.45 0 .58-.22l1.92-3.32a.48.48 0 0 0-.11-.61l-2.02-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
-              />
-            </svg>
+            <Settings className="settings-icon" aria-hidden="true" />
           </button>
           <div className="app-version">v{__APP_VERSION__}</div>
         </div>
       </aside>
 
       <main className="content">
-        <Routes>
+        {active && !active.isAvailable && location.pathname !== '/' ? (
+          <section className="workspace-unavailable-panel" role="alert">
+            <div className="workspace-unavailable-icon"><CircleAlert aria-hidden="true" /></div>
+            <div className="workspace-unavailable-copy">
+              <span className="eyebrow">{active.name}</span>
+              <h1>{t('workspace.locationMissing')}</h1>
+              <p>{t('workspace.locationMissingHelp', { path: active.rootPath })}</p>
+              <button type="button" className="primary icon-text-button" onClick={() => void handleRelocateFolder(active)}>
+                <FolderOpen aria-hidden="true" />
+                {t('workspace.relocate')}
+              </button>
+            </div>
+          </section>
+        ) : <Routes>
           <Route
             path="/"
             element={(
@@ -423,6 +490,7 @@ export default function App() {
                 onImportDroppedFolder={handleImportDroppedFolder}
                 onOpenFolder={handleOpenFolder}
                 onRemoveFolder={handleRemoveFolder}
+                onRelocateFolder={handleRelocateFolder}
                 webMode={webMode}
               />
             )}
@@ -450,15 +518,20 @@ export default function App() {
           <Route path="/laravel-schema" element={<LaravelSchemaView folder={active} scanRevision={scanRevision} />} />
           <Route path="/duplicates" element={<DuplicatesView folder={active} scanRevision={scanRevision} />} />
           <Route path="/editor/:relPath" element={<EditorView folder={active} scanRevision={scanRevision} />} />
-        </Routes>
+        </Routes>}
       </main>
 
       {settingsOpen && (
         <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
           <div ref={settingsDialogRef} className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={event => event.stopPropagation()}>
             <div className="modal-header">
-              <h1 id="settings-title">{t('app.settings')}</h1>
-              <button ref={settingsCloseButtonRef} onClick={() => setSettingsOpen(false)}>{t('common.close')}</button>
+              <div>
+                <div className="eyebrow">Code Line Analysis</div>
+                <h1 id="settings-title">{t('app.settings')}</h1>
+              </div>
+              <button ref={settingsCloseButtonRef} className="icon-button" aria-label={t('common.close')} title={t('common.close')} onClick={() => setSettingsOpen(false)}>
+                <X aria-hidden="true" />
+              </button>
             </div>
             <div className="settings-tabs" role="tablist" aria-label={t('app.settings')}>
               <button
@@ -468,6 +541,7 @@ export default function App() {
                 className={settingsTab === 'general' ? 'settings-tab active' : 'settings-tab'}
                 onClick={() => setSettingsTab('general')}
               >
+                <Globe2 aria-hidden="true" />
                 {t('settings.generalTab')}
               </button>
               <button
@@ -477,6 +551,7 @@ export default function App() {
                 className={settingsTab === 'scan' ? 'settings-tab active' : 'settings-tab'}
                 onClick={() => setSettingsTab('scan')}
               >
+                <ListTree aria-hidden="true" />
                 {t('settings.scanTab')}
               </button>
             </div>
@@ -484,12 +559,15 @@ export default function App() {
               {settingsTab === 'general' ? (
                 <>
                   <p className="settings-copy">{t('settings.generalHelp')}</p>
-                  <label className="settings-field">
-                    <span>{t('app.language')}</span>
-                    <select value={language} onChange={e => setLanguage(e.target.value as Language)}>
+                  <div className="settings-option-row">
+                    <div className="settings-option-copy">
+                      <strong>{t('app.language')}</strong>
+                      <span>{t('settings.languageHelp')}</span>
+                    </div>
+                    <select aria-label={t('app.language')} value={language} onChange={e => setLanguage(e.target.value as Language)}>
                       {languageOptions.map(option => <option key={option.code} value={option.code}>{option.label}</option>)}
                     </select>
-                  </label>
+                  </div>
                 </>
               ) : (
                 <>

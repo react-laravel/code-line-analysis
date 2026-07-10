@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { Save, ShieldCheck } from 'lucide-react';
 import type { FolderRow, FolderRules } from '../../shared/api';
 import { useI18n } from '../i18n';
+import PageHeader from '../components/PageHeader';
 
 interface Props { folder: FolderRow | null; }
 
@@ -61,15 +63,26 @@ export default function FolderManager({ folder }: Props) {
   }
 
   return (
-    <div>
-      <h1>{t('folderManager.title', { name: folder.name })}</h1>
-      <div className="muted">{folder.rootPath}</div>
-
-      <h2>{t('folderManager.rules')}</h2>
-      <p className="muted">{t('folderManager.rulesHelp')}</p>
-      <div className="rules-grid">
-        <div>
-          <h2>{t('folderManager.whitelist')}</h2>
+    <div className="folder-manager-page">
+      <PageHeader
+        eyebrow={folder.name}
+        title={t('folderManager.rules')}
+        description={t('folderManager.rulesHelp')}
+        meta={folder.rootPath}
+        actions={(
+          <div className="status-pill folder-rules-status">
+            <ShieldCheck aria-hidden="true" />
+            {t('folderManager.activeRules', {
+              whitelist: rules.whitelist.length.toLocaleString(locale),
+              blacklist: rules.blacklist.length.toLocaleString(locale),
+            })}
+          </div>
+        )}
+      />
+      <div className="rules-grid folder-rules-grid">
+        <label className="rule-editor">
+          <span className="rule-editor-heading">{t('folderManager.whitelist')}</span>
+          <span className="rule-editor-copy">{t('folderManager.whitelistHelp')}</span>
           <textarea
             value={whiteText}
             onChange={e => {
@@ -81,9 +94,10 @@ export default function FolderManager({ folder }: Props) {
             className="rules-textarea"
             placeholder={'src/**\nlib/**'}
           />
-        </div>
-        <div>
-          <h2>{t('folderManager.blacklist')}</h2>
+        </label>
+        <label className="rule-editor">
+          <span className="rule-editor-heading">{t('folderManager.blacklist')}</span>
+          <span className="rule-editor-copy">{t('folderManager.blacklistHelp')}</span>
           <textarea
             value={blackText}
             onChange={e => {
@@ -95,17 +109,19 @@ export default function FolderManager({ folder }: Props) {
             className="rules-textarea"
             placeholder={'vendor\n**/__generated__/**'}
           />
-        </div>
+        </label>
       </div>
-      <div className="toolbar" style={{ marginTop: 12 }}>
-        <button className="primary" onClick={save} disabled={saving}>{saving ? t('folderManager.saving') : t('folderManager.save')}</button>
+      <div className="settings-actions folder-rules-actions">
+        <button className="primary icon-text-button" onClick={save} disabled={saving}>
+          <Save aria-hidden="true" />
+          {saving ? t('folderManager.saving') : t('folderManager.save')}
+        </button>
+        {(saveMessage || saveError) && (
+          <div className={saveError ? 'settings-field-note error' : 'settings-field-note success'}>
+            {saveError || saveMessage}
+          </div>
+        )}
       </div>
-      {(saveMessage || saveError) && (
-        <div className={saveError ? 'settings-field-note error' : 'settings-field-note'}>
-          {saveError || saveMessage}
-        </div>
-      )}
-      <div className="muted">{t('folderManager.activeRules', { whitelist: rules.whitelist.length.toLocaleString(locale), blacklist: rules.blacklist.length.toLocaleString(locale) })}</div>
     </div>
   );
 }

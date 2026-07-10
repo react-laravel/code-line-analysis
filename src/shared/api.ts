@@ -32,6 +32,7 @@ export interface FolderRow {
   rootPath: string;
   name: string;
   createdAt: number;
+  isAvailable: boolean;
 }
 
 export interface FolderRules {
@@ -208,6 +209,7 @@ export interface Api {
     add: (rootPath: string) => Promise<FolderRow>;
     addGitRepositories: (rootPath: string) => Promise<FolderRow[]>;
     list: () => Promise<FolderRow[]>;
+    relocate: (id: number, rootPath: string) => Promise<FolderRow>;
     remove: (id: number) => Promise<void>;
     getRules: (id: number) => Promise<FolderRules>;
     setRules: (id: number, rules: FolderRules) => Promise<FolderRules>;

@@ -29,8 +29,22 @@ function duplicateRulesKey(folderId: number): string {
   return `duplicateRules:${folderId}`;
 }
 
+function folderPathIsAvailable(rootPath: string): boolean {
+  try {
+    return statSync(rootPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function rowToFolder(r: any): FolderRow {
-  return { id: r.id, rootPath: r.root_path, name: r.name, createdAt: r.created_at };
+  return {
+    id: r.id,
+    rootPath: r.root_path,
+    name: r.name,
+    createdAt: r.created_at,
+    isAvailable: folderPathIsAvailable(r.root_path),
+  };
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -308,6 +322,22 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return rows.map(rowToFolder);
   });
 
+  ipcMain.handle(IPC_CHANNELS.FOLDERS_RELOCATE, (_e, id: number, rootPath: string): FolderRow => {
+    const stats = statSync(rootPath);
+    if (!stats.isDirectory()) throw new Error('Not a directory');
+
+    const existing = db.prepare('SELECT id FROM folders WHERE root_path = ? AND id != ?').get(rootPath, id) as { id: number } | undefined;
+    if (existing) throw new Error('Selected directory is already a workspace');
+
+    const name = path.basename(rootPath);
+    const row = db.prepare('UPDATE folders SET root_path = ?, name = ? WHERE id = ? RETURNING *').get(rootPath, name, id) as any;
+    if (!row) throw new Error('Folder not found');
+
+    startFolderWatcher(id, rootPath);
+    clearGitCache();
+    return rowToFolder(row);
+  });
+
   ipcMain.handle(IPC_CHANNELS.FOLDERS_REMOVE, (_e, id: number) => {
     stopFolderWatcher(id);
     db.prepare('DELETE FROM folders WHERE id = ?').run(id);
@@ -462,6 +492,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_INFO, async (_e, folderId: number, relPath: string) => {
     const folder = db.prepare('SELECT root_path FROM folders WHERE id = ?').get(folderId) as { root_path: string } | undefined;
     if (!folder) return null;
+    ensureInsideRoot(folder.root_path, relPath);
     return await getGitFileInfo(folder.root_path, relPath);
   });
 

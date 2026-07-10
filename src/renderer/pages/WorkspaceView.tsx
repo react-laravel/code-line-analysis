@@ -1,4 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowUpDown,
+  ChevronDown,
+  CircleAlert,
+  Clock3,
+  ExternalLink,
+  FolderOpen,
+  GitBranch,
+  MapPin,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import type { FolderRow, GitRepoInfo } from '../../shared/api';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
@@ -12,6 +25,7 @@ interface Props {
   onImportDroppedFolder?: (dataTransfer: DataTransfer) => Promise<void>;
   onOpenFolder: (folderId: number) => void;
   onRemoveFolder: (folder: FolderRow) => Promise<void>;
+  onRelocateFolder: (folder: FolderRow) => Promise<void>;
   webMode: boolean;
 }
 
@@ -27,19 +41,18 @@ function AddFolderActions({
   const { t } = useI18n();
 
   if (webMode) {
-    return <button className="primary" onClick={() => void onAddFolder()}>{t('app.addFolder')}</button>;
+    return <button className="primary icon-text-button" onClick={() => void onAddFolder()}><Plus aria-hidden="true" />{t('app.addFolder')}</button>;
   }
 
   return (
     <div className="add-folder-split-button">
-      <button className="primary add-folder-main" onClick={() => void onAddFolder()}>
+      <button className="primary add-folder-main icon-text-button" onClick={() => void onAddFolder()}>
+        <Plus aria-hidden="true" />
         {t('app.addFolder')}
       </button>
       <details className="add-folder-menu">
         <summary aria-label={t('workspace.addFolderOptions')} title={t('workspace.addFolderOptions')}>
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path fill="currentColor" d="M4.2 6.2a.75.75 0 0 1 1.06 0L8 8.94l2.74-2.74a.75.75 0 1 1 1.06 1.06l-3.27 3.27a.75.75 0 0 1-1.06 0L4.2 7.26a.75.75 0 0 1 0-1.06Z" />
-          </svg>
+          <ChevronDown aria-hidden="true" />
         </summary>
         <div className="add-folder-menu-popover">
           <button
@@ -58,7 +71,7 @@ function AddFolderActions({
   );
 }
 
-export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGitRepositories, onImportDroppedFolder, onOpenFolder, onRemoveFolder, webMode }: Props) {
+export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGitRepositories, onImportDroppedFolder, onOpenFolder, onRemoveFolder, onRelocateFolder, webMode }: Props) {
   const { locale, t } = useI18n();
   const [repoInfoByFolder, setRepoInfoByFolder] = useState<Record<number, GitRepoInfo | null>>({});
   const [dragActive, setDragActive] = useState(false);
@@ -76,7 +89,7 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGit
     }
 
     void Promise.all(
-      folders.map(async folder => [folder.id, await window.api.git.repoInfo(folder.id)] as const),
+      folders.map(async folder => [folder.id, folder.isAvailable ? await window.api.git.repoInfo(folder.id) : null] as const),
     ).then(entries => {
       if (cancelled) return;
       setRepoInfoByFolder(Object.fromEntries(entries));
@@ -182,7 +195,8 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGit
               onClick={() => { setSortByCommit(!sortByCommit); if (sortByCommit) setCommitSortAsc(!commitSortAsc); }}
               title={sortByCommit ? (commitSortAsc ? t('workspace.sortOldestFirst') : t('workspace.sortNewestFirst')) : t('workspace.sortByCommitTitle')}
             >
-              {t('workspace.sortByCommit')} {sortByCommit ? (commitSortAsc ? ' ▲' : ' ▼') : ''}
+              <ArrowUpDown aria-hidden="true" />
+              {t('workspace.sortByCommit')} {sortByCommit ? (commitSortAsc ? ' ↑' : ' ↓') : ''}
             </button>
             <AddFolderActions onAddFolder={onAddFolder} onAddGitRepositories={onAddGitRepositories} webMode={webMode} />
           </>
@@ -223,42 +237,73 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGit
           {sortedFolders.map(folder => (
             <article
               key={folder.id}
-              className={folder.id === activeId ? 'workspace-folder-card active' : 'workspace-folder-card'}
+              className={[
+                'workspace-folder-card',
+                folder.id === activeId ? 'active' : '',
+                folder.isAvailable ? '' : 'missing',
+              ].filter(Boolean).join(' ')}
             >
               <div className="workspace-folder-topline">
-                <span className="workspace-folder-name">{folder.name}</span>
+                <div className="workspace-folder-title">
+                  <span className="workspace-folder-icon"><FolderOpen aria-hidden="true" /></span>
+                  <span className="workspace-folder-name">{folder.name}</span>
+                </div>
                 <details className="workspace-folder-menu">
-                  <summary aria-label={t('workspace.moreActions')}>•••</summary>
+                  <summary aria-label={t('workspace.moreActions')} title={t('workspace.moreActions')}><MoreHorizontal aria-hidden="true" /></summary>
                   <div className="workspace-folder-menu-popover">
+                    {!folder.isAvailable && !webMode ? (
+                      <button
+                        type="button"
+                        className="icon-text-button"
+                        onClick={event => {
+                          closeActionMenu(event.currentTarget);
+                          void onRelocateFolder(folder);
+                        }}
+                      >
+                        <MapPin aria-hidden="true" />
+                        {t('workspace.relocate')}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      className="danger"
+                      className="danger icon-text-button"
                       onClick={event => {
                         closeActionMenu(event.currentTarget);
                         void onRemoveFolder(folder);
                       }}
                     >
+                      <Trash2 aria-hidden="true" />
                       {t('folderManager.remove')}
                     </button>
                   </div>
                 </details>
               </div>
-              <div className="workspace-folder-path">{folder.rootPath}</div>
-              {repoInfoByFolder[folder.id]?.remoteOriginWebUrl ? (
+              <div className="workspace-folder-path"><MapPin aria-hidden="true" /><span>{folder.rootPath}</span></div>
+              {!folder.isAvailable ? (
+                <div className="workspace-missing-notice" role="status">
+                  <CircleAlert aria-hidden="true" />
+                  <div>
+                    <strong>{t('workspace.locationMissing')}</strong>
+                    <span>{t('workspace.locationMissingCardHelp')}</span>
+                  </div>
+                </div>
+              ) : repoInfoByFolder[folder.id]?.remoteOriginWebUrl ? (
                 <button
                   type="button"
                   className="workspace-link-button workspace-folder-link"
                   onClick={() => void window.api.system.openExternal(repoInfoByFolder[folder.id]!.remoteOriginWebUrl!)}
                 >
+                  <ExternalLink aria-hidden="true" />
                   {formatRemoteLabel(repoInfoByFolder[folder.id]!.remoteOriginWebUrl!)}
                 </button>
               ) : (
                 <span className="workspace-folder-meta-empty">{t('workspace.noRemoteOrigin')}</span>
               )}
               <div className="workspace-folder-footer">
-                <div className="workspace-folder-commit">
-                  <span className="workspace-folder-meta-label">{t('workspace.lastCommit')}</span>
+                {folder.isAvailable ? <div className="workspace-folder-commit">
+                  <span className="workspace-folder-meta-label"><GitBranch aria-hidden="true" />{t('workspace.lastCommit')}</span>
                   <div className="workspace-folder-commit-row">
+                    <Clock3 aria-hidden="true" />
                     <span className="workspace-folder-meta-value">{formatCommitDate(repoInfoByFolder[folder.id]?.lastCommitDate)}</span>
                     {(() => {
                       const days = daysSinceCommit(repoInfoByFolder[folder.id]?.lastCommitDate);
@@ -267,8 +312,14 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGit
                       return <span className={`workspace-commit-age ${commitStaleClass(days)}`}>{label}</span>;
                     })()}
                   </div>
-                </div>
-                <button onClick={() => onOpenFolder(folder.id)}>{t('workspace.openFolder')}</button>
+                </div> : <div />}
+                <button
+                  className={folder.isAvailable ? 'icon-text-button' : 'primary icon-text-button'}
+                  onClick={() => folder.isAvailable ? onOpenFolder(folder.id) : void onRelocateFolder(folder)}
+                >
+                  {folder.isAvailable ? <FolderOpen aria-hidden="true" /> : <MapPin aria-hidden="true" />}
+                  {folder.isAvailable ? t('workspace.openFolder') : t('workspace.relocate')}
+                </button>
               </div>
             </article>
           ))}

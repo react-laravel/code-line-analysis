@@ -15,6 +15,7 @@ export default function PageHeader({ title, description, eyebrow, meta, actions 
         {eyebrow && <div className="eyebrow">{eyebrow}</div>}
         <h1>{title}</h1>
         {description && <div className="page-description">{description}</div>}
+        {meta && <div className="page-meta">{meta}</div>}
       </div>
       {actions && <div className="page-actions">{actions}</div>}
     </header>

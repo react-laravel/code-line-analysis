@@ -397,6 +397,7 @@ export function createBrowserApi(): Api {
           rootPath: staged.rootLabel,
           name: staged.name,
           createdAt: Date.now(),
+          isAvailable: true,
         };
 
         folders.set(row.id, {
@@ -415,6 +416,9 @@ export function createBrowserApi(): Api {
         throw new Error('Git repository discovery is only available in the desktop app.');
       },
       list: async () => Array.from(folders.values()).map(folder => folder.row),
+      relocate: async () => {
+        throw new Error('Workspace relocation is only available in the desktop app.');
+      },
       remove: async (id) => {
         folders.delete(id);
       },

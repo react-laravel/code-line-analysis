@@ -6,6 +6,7 @@ import EChartsPanel from '../components/EChartsPanel';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import { useI18n } from '../i18n';
+import { escapeHtml } from '../utils/escapeHtml';
 
 const COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#a371f7', '#79c0ff', '#56d364', '#ffa657', '#ff7b72', '#d2a8ff'];
 const CHART_TEXT = '#e6edf3';
@@ -23,7 +24,7 @@ function buildLanguageShareOption(data: FolderStats['byLang'], locale: string): 
       textStyle: { color: CHART_TEXT },
       formatter: params => {
         const value = typeof params.value === 'number' ? params.value : Number(params.value || 0);
-        return `${params.name}<br/>Total: ${value.toLocaleString(locale)}`;
+        return `${escapeHtml(String(params.name))}<br/>Total: ${value.toLocaleString(locale)}`;
       },
     },
     legend: {
@@ -75,7 +76,7 @@ function buildLanguageBreakdownOption(data: FolderStats['byLang'], locale: strin
       formatter: params => {
         const points = Array.isArray(params) ? params : [params];
         return [
-          points[0]?.axisValueLabel ?? '',
+          escapeHtml(String(points[0]?.axisValueLabel ?? '')),
           ...points.map(point => `${point.marker}${point.seriesName}: ${Number(point.value).toLocaleString(locale)}`),
         ].join('<br/>');
       },

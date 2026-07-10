@@ -14,6 +14,7 @@ const api: Api = {
     add: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.FOLDERS_ADD, rootPath),
     addGitRepositories: (rootPath) => ipcRenderer.invoke(IPC_CHANNELS.FOLDERS_ADD_GIT_REPOSITORIES, rootPath),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.FOLDERS_LIST),
+    relocate: (id, rootPath) => ipcRenderer.invoke(IPC_CHANNELS.FOLDERS_RELOCATE, id, rootPath),
     remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.FOLDERS_REMOVE, id),
     getRules: (id) => ipcRenderer.invoke(IPC_CHANNELS.FOLDERS_GET_RULES, id),
     setRules: (id, rules) => ipcRenderer.invoke(IPC_CHANNELS.FOLDERS_SET_RULES, id, rules),

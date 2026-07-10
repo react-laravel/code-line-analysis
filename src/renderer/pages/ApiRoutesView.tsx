@@ -6,6 +6,7 @@ import EChartsPanel from '../components/EChartsPanel';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import { useI18n } from '../i18n';
+import { escapeHtml } from '../utils/escapeHtml';
 
 interface Props {
   folder: FolderRow | null;
@@ -813,7 +814,7 @@ export default function ApiRoutesView({ folder, scanRevision }: Props) {
           } : null;
           if (!data) return '';
           return [
-            data.displayName,
+            escapeHtml(data.displayName),
             `${t('apiRoutes.methods')}: ${methodLabel(data.method, t)}`,
             `${t('apiRoutes.routes')}: ${Number(data.value?.[2] ?? 0).toLocaleString(locale)}`,
             `${t('common.files')}: ${data.routeCount.toLocaleString(locale)}`,
@@ -830,7 +831,7 @@ export default function ApiRoutesView({ folder, scanRevision }: Props) {
           } : null;
           if (!data) return '';
           return [
-            data.displayName,
+            escapeHtml(data.displayName),
             `${t('apiRoutes.methods')}: ${methodLabel(data.method, t)}`,
             `${t('apiRoutes.routes')}: ${Number(data.value ?? 0).toLocaleString(locale)}`,
             `${t('common.files')}: ${data.routeCount.toLocaleString(locale)}`,
@@ -850,7 +851,7 @@ export default function ApiRoutesView({ folder, scanRevision }: Props) {
         if (!data) return '';
 
         const lines = [
-          data.displayName,
+          escapeHtml(data.displayName),
           `${t('apiRoutes.routes')}: ${data.routeCount.toLocaleString(locale)}`,
         ];
 

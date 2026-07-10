@@ -4,6 +4,7 @@ import type { FolderRow, HeatmapBucket } from '../../shared/api';
 import EChartsPanel from '../components/EChartsPanel';
 import { useI18n } from '../i18n';
 import PageHeader from '../components/PageHeader';
+import { escapeHtml } from '../utils/escapeHtml';
 
 interface Props {
   folder: FolderRow | null;
@@ -54,7 +55,7 @@ export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
           ? Number(point.data.lines)
           : 0;
         return [
-          point?.axisValueLabel ?? '',
+          escapeHtml(String(point?.axisValueLabel ?? '')),
           `${t('heatmap.filesChanged')}: ${Number(point?.value ?? 0).toLocaleString(locale)}`,
           `${t('heatmap.totalLinesSinceDate')}: ${lines.toLocaleString(locale)}`,
         ].join('<br/>');

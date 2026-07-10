@@ -6,6 +6,7 @@ import EChartsPanel from '../components/EChartsPanel';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import { useI18n } from '../i18n';
+import { escapeHtml } from '../utils/escapeHtml';
 
 interface Props {
   folder: FolderRow | null;
@@ -101,7 +102,7 @@ export default function RelationsView({ folder, scanRevision }: Props) {
         textStyle: { color: CHART_TEXT },
         formatter: params => {
           if (params.dataType === 'edge') {
-            return `${params.data.source}<br/>→ ${params.data.target}`;
+            return `${escapeHtml(String(params.data.source))}<br/>→ ${escapeHtml(String(params.data.target))}`;
           }
 
           const data = params.data as {
@@ -112,8 +113,8 @@ export default function RelationsView({ folder, scanRevision }: Props) {
             outgoing: number;
           };
           return [
-            data.relPath,
-            `${t('common.language')}: ${data.lang}`,
+            escapeHtml(data.relPath),
+            `${t('common.language')}: ${escapeHtml(data.lang)}`,
             `${t('common.code')}: ${Number(data.code).toLocaleString(locale)}`,
             `${t('relations.incoming')}: ${Number(data.incoming).toLocaleString(locale)}`,
             `${t('relations.outgoing')}: ${Number(data.outgoing).toLocaleString(locale)}`,
