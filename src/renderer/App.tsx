@@ -17,6 +17,8 @@ import {
   Route as RouteIcon,
   Settings,
   Share2,
+  Sun,
+  Moon,
   Tags,
   X,
 } from 'lucide-react';
@@ -36,6 +38,7 @@ import EditorView from './pages/EditorView';
 import WorkspaceView from './pages/WorkspaceView';
 import { useI18n, type Language } from './i18n';
 import { isWebRuntime, stageDroppedFolderImport } from './runtime';
+import { useTheme, type ThemeMode } from './theme';
 
 const primaryNavItems = [
   { to: '/', labelKey: 'nav.workspace', icon: FolderKanban },
@@ -83,6 +86,7 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const { language, languageOptions, locale, setLanguage, t } = useI18n();
+  const { theme, setTheme } = useTheme();
 
   const refreshFolders = useCallback(async () => {
     const list = await window.api.folders.list();
@@ -567,6 +571,29 @@ export default function App() {
                     <select aria-label={t('app.language')} value={language} onChange={e => setLanguage(e.target.value as Language)}>
                       {languageOptions.map(option => <option key={option.code} value={option.code}>{option.label}</option>)}
                     </select>
+                  </div>
+                  <div className="settings-option-row">
+                    <div className="settings-option-copy">
+                      <strong>{t('settings.theme')}</strong>
+                      <span>{t('settings.themeHelp')}</span>
+                    </div>
+                    <div className="theme-segmented-control" role="group" aria-label={t('settings.theme')}>
+                      {([
+                        ['light', t('settings.themeLight'), Sun],
+                        ['dark', t('settings.themeDark'), Moon],
+                      ] as const).map(([value, label, Icon]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={theme === value}
+                          className={theme === value ? 'theme-option active' : 'theme-option'}
+                          onClick={() => setTheme(value as ThemeMode)}
+                        >
+                          <Icon aria-hidden="true" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </>
               ) : (

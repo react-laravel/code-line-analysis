@@ -4,6 +4,7 @@ import Editor, { OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import type { FolderRow, FileMeta, GitFileInfo, TagRow } from '../../shared/api';
 import { useI18n } from '../i18n';
+import { useTheme } from '../theme';
 
 interface Props {
   folder: FolderRow | null;
@@ -31,6 +32,7 @@ export default function EditorView({ folder, scanRevision }: Props) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { locale, t } = useI18n();
+  const { theme } = useTheme();
   const decodedPath = relPath;
   const targetLine = Number(searchParams.get('line')) || 0;
   const targetEndLine = Number(searchParams.get('endLine')) || 0;
@@ -190,7 +192,7 @@ export default function EditorView({ folder, scanRevision }: Props) {
   };
 
   function beforeMount(monacoInstance: typeof import('monaco-editor')) {
-    monacoInstance.editor.setTheme('vs-dark');
+    monacoInstance.editor.setTheme(theme === 'light' ? 'vs' : 'vs-dark');
   }
 
   async function save() {
@@ -283,7 +285,7 @@ export default function EditorView({ folder, scanRevision }: Props) {
       <div className="editor-host">
         <Editor
           height="100%"
-          theme="vs-dark"
+          theme={theme === 'light' ? 'vs' : 'vs-dark'}
           path={decodedPath}
           language={langOf(decodedPath)}
           loading={t('editor.loadingAssets')}
