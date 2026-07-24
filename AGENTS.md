@@ -2,28 +2,27 @@
 
 ## Project Overview
 
-Code Line Analysis is an Electron desktop app for scanning repositories, collecting code statistics, and browsing results in a React renderer.
+Code Line Analysis is a Tauri 2 desktop app for scanning repositories, collecting code statistics, and browsing results in a React renderer.
+
+The full Electron / static-web edition lives on the `electron` branch.
 
 ## Common Commands
 
-- `npm run dev`: start the Vite renderer and Electron main process in development.
-- `npm run build`: build the renderer and the Electron main process.
-- `npm run dist`: create packaged desktop artifacts without macOS code signing.
-- `npm run dist:signed`: create packaged desktop artifacts with electron-builder's default signing behavior.
-- `npm run rebuild`: rebuild native modules for the current Electron version.
+- `npm run dev`: start Tauri (Vite renderer + Rust backend)
+- `npm run build`: package the desktop app
+- `npm run dev:ui` / `npm run build:ui`: frontend only
+- `cargo check --manifest-path src-tauri/Cargo.toml`
 
 ## Repository Layout
 
-- `src/main`: Electron main process, IPC registration, database access, git integration, scanners, and parsers.
-- `src/preload`: preload bridge exposed to the renderer.
-- `src/renderer`: React UI, routes, Monaco integration, and page-level views.
-- `src/shared`: types shared between the main process and renderer.
+- `src-tauri`: Rust backend (SQLite, scanner, parsers, stats, git, analysis, commands)
+- `src/renderer`: React UI and Tauri runtime bridge
+- `src/shared`: types shared with the renderer API contract
 
 ## Implementation Notes
 
-- Desktop app icon source lives at `build/icon.png`.
-- Generated platform icons live at `build/icon.icns` and `build/icon.ico`.
-- Packaging icon configuration is defined in `package.json` under `build`.
-- Runtime window and dock icon wiring is defined in `src/main/index.ts`.
-- Packaged runtime icon loading depends on `extraResources` copying `build/icon.png` to `Resources/icon.png`.
-- When changing IPC contracts, keep `src/main`, `src/preload`, and `src/shared/api.ts` aligned.
+- Desktop icons live under `src-tauri/icons/` (source also in `build/icon.png`)
+- When changing the API surface, keep `src/shared/api.ts` and `src/renderer/runtime/tauri-api.ts` aligned with Rust command names
+- Progress events use the exact name `scan:progress`
+- CI: `.github/workflows/ci.yml` runs `build:ui` + `cargo check`
+- Web deploy workflow targets the `electron` branch only

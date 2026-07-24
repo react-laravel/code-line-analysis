@@ -1,117 +1,59 @@
 # Code Line Analysis
 
+基于 Tauri 2 的代码行数统计与仓库分析桌面应用。
+
+> Electron 完整版（含网页部署）保留在 [`electron`](https://github.com/react-laravel/code-line-analysis/tree/electron) 分支。
+
 [简体中文](README.zh-CN.md)
 
-Code Line Analysis is an Electron desktop app and deployable static web app for scanning local repositories, storing metrics in a local SQLite database on desktop, and browsing results through a React UI.
+## 功能（main / Tauri）
 
-## Highlights
+- 多工作区文件夹扫描，实时进度
+- 按语言统计 total / code / comment / blank / block-comment
+- 仪表盘、目录树、文件列表、Tags、Top、热力图、重复代码
+- Monaco 内嵌查看/编辑，Git 元数据
+- 全局与工作区白名单/黑名单规则
+- Laravel / Next API 路由、文件引用关系、Laravel Schema（对齐 electron 分析契约）
+- 工作区目录监听（变更后自动重扫）
+- 树节点右键：复制名称/路径、打开、在文件管理器中显示
+- 中英文界面
 
-- Analyze multiple folders in one workspace.
-- Drag a folder into the web build and analyze it locally in the browser.
-- Scan folders with live progress updates.
-- Count total, code, comment, blank, and block-comment lines.
-- Browse results through dashboard, tree, files, tags, top, heatmap, and duplicate-code views.
-- Inspect and edit files in-app with Monaco Editor, line jumps, and Git metadata.
-- Control scan scope with global whitelist and blacklist rules, then refine them per workspace.
-- Switch the UI between English and Simplified Chinese.
+## 技术栈
 
-## Views
+| 层 | 技术 |
+|---|---|
+| 桌面壳 | Tauri 2 |
+| 后端 | Rust（SQLite / 扫描 / Git CLI / 分析） |
+| 前端 | React 19 + TypeScript + Vite + Monaco + ECharts |
 
-- Workspace: add folders and switch between analyzed projects.
-- Dashboard: summary cards and per-language charts.
-- Folder Manager: configure whitelist and blacklist scan rules.
-- Tree: inspect directory totals and open files from a hierarchical view.
-- Files: search, filter, sort, and open scanned files.
-- Tags: review TODO, FIXME, HACK, NOTE, and XXX markers.
-- Top Files and Functions: find large files and long functions quickly.
-- Heatmap: inspect recent activity based on file modification time.
-- Duplicates: review duplicate code clusters with 6 or more lines.
-
-## Tech Stack
-
-- Electron
-- React 18
-- TypeScript
-- Vite
-- better-sqlite3
-- Monaco Editor
-- Recharts
-- simple-git
-
-## Requirements
-
-- Node.js 20 or newer is recommended.
-- npm
-
-## Development
-
-Install dependencies and start the app in development mode:
+## 快速开始
 
 ```bash
 npm install
-npm run dev
+npm run dev      # tauri dev（Vite + Rust）
+npm run build    # tauri build
 ```
 
-If the native SQLite module needs to be rebuilt for your local Electron version:
+本地也可只起 UI：`npm run dev:ui`。
 
-```bash
-npm run rebuild
+## 项目结构
+
+```text
+src/shared/              API 契约与共享类型
+src/renderer/            React UI
+src/renderer/runtime/    Tauri invoke 桥
+src-tauri/               Rust 后端
+  src/commands/          Tauri 命令
+  src/scan/              目录遍历与扫描
+  src/parsers/           行计数 / tags / 函数 / 重复片段
+  src/stats/             聚合查询
+  src/analysis/          API 路由 / 关系图 / Laravel schema
+  src/git/               git CLI
+  src/watch.rs           目录监听
 ```
 
-## Build and Package
+Electron / 网页版源码与部署脚本见 [`electron`](https://github.com/react-laravel/code-line-analysis/tree/electron) 分支。
 
-```bash
-npm run build:web
-npm run build
-npm run dist
-npm run dist:signed
-```
-
-- `npm run build:web` creates the static web build in `dist/renderer`.
-- `npm run build` builds the renderer and the Electron main process.
-- `npm run dist` creates unsigned desktop artifacts.
-- `npm run dist:signed` uses Electron Builder's default signing behavior.
-- Packaged output is written to the `release/` directory.
-
-## Web Deployment
-
-The renderer can now be deployed as a static site. Build it with:
-
-```bash
-npm run build:web
-```
-
-Then publish the contents of `dist/renderer` to any static host such as Nginx, GitHub Pages, Vercel, or Netlify. The app uses `HashRouter`, so no SPA rewrite rule is required.
-
-See [WEB_DEPLOY.md](WEB_DEPLOY.md) for deployment steps, browser requirements, and web-mode limitations.
-
-## Usage
-
-1. Open the app and add a folder from the Workspace view.
-2. The app can start an initial scan immediately after adding a folder.
-3. Configure global whitelist and blacklist rules in Settings when you need app-wide defaults.
-4. Refine scan scope for an individual workspace in Folder Manager.
-5. Browse the project through the Tree, Files, Tags, Top, Heatmap, and Duplicates views.
-6. Open a file in the editor to inspect metrics, Git info, tags, and optionally save changes.
-
-## Data Storage
-
-Scan results are stored locally in a SQLite database at Electron's user-data path using the file name `codeline.sqlite`.
-
-## Project Structure
-
-- `src/main`: Electron main process, IPC handlers, database access, scanners, parsers, and git integration.
-- `src/preload`: preload bridge exposed to the renderer.
-- `src/renderer`: React UI, routes, Monaco integration, and page-level views.
-- `src/shared`: shared types and IPC-facing contracts.
-- `build`: app icon sources and packaging resources.
-- `release`: generated build and packaging output.
-
-## Contributor Notes
-
-- When changing IPC contracts, keep `src/main`, `src/preload`, and `src/shared/api.ts` in sync.
-- Packaging icons are sourced from `build/icon.png`, `build/icon.icns`, and `build/icon.ico`.
-
-## License
+## 许可证
 
 MIT

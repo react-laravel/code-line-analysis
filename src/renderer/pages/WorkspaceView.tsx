@@ -22,27 +22,19 @@ interface Props {
   activeId: number | null;
   onAddFolder: () => Promise<void>;
   onAddGitRepositories: () => Promise<void>;
-  onImportDroppedFolder?: (dataTransfer: DataTransfer) => Promise<void>;
   onOpenFolder: (folderId: number) => void;
   onRemoveFolder: (folder: FolderRow) => Promise<void>;
   onRelocateFolder: (folder: FolderRow) => Promise<void>;
-  webMode: boolean;
 }
 
 function AddFolderActions({
   onAddFolder,
   onAddGitRepositories,
-  webMode,
 }: {
   onAddFolder: () => Promise<void>;
   onAddGitRepositories: () => Promise<void>;
-  webMode: boolean;
 }) {
   const { t } = useI18n();
-
-  if (webMode) {
-    return <button className="primary icon-text-button" onClick={() => void onAddFolder()}><Plus aria-hidden="true" />{t('app.addFolder')}</button>;
-  }
 
   return (
     <div className="add-folder-split-button">
@@ -71,12 +63,17 @@ function AddFolderActions({
   );
 }
 
-export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGitRepositories, onImportDroppedFolder, onOpenFolder, onRemoveFolder, onRelocateFolder, webMode }: Props) {
+export default function WorkspaceView({
+  folders,
+  activeId,
+  onAddFolder,
+  onAddGitRepositories,
+  onOpenFolder,
+  onRemoveFolder,
+  onRelocateFolder,
+}: Props) {
   const { locale, t } = useI18n();
   const [repoInfoByFolder, setRepoInfoByFolder] = useState<Record<number, GitRepoInfo | null>>({});
-  const [dragActive, setDragActive] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState('');
   const [sortByCommit, setSortByCommit] = useState(false);
   const [commitSortAsc, setCommitSortAsc] = useState(false);
 
@@ -137,39 +134,6 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGit
     if (details instanceof HTMLDetailsElement) details.open = false;
   }
 
-  async function importFromDrop(dataTransfer: DataTransfer): Promise<void> {
-    if (!onImportDroppedFolder) return;
-    setImportError('');
-    setImporting(true);
-
-    try {
-      await onImportDroppedFolder(dataTransfer);
-    } catch {
-      setImportError(t('workspace.importFailed'));
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  function handleDragOver(event: React.DragEvent<HTMLElement>): void {
-    event.preventDefault();
-    if (!webMode) return;
-    setDragActive(true);
-  }
-
-  function handleDragLeave(event: React.DragEvent<HTMLElement>): void {
-    event.preventDefault();
-    if (!webMode) return;
-    setDragActive(false);
-  }
-
-  function handleDrop(event: React.DragEvent<HTMLElement>): void {
-    event.preventDefault();
-    if (!webMode) return;
-    setDragActive(false);
-    void importFromDrop(event.dataTransfer);
-  }
-
   const sortedFolders = useMemo(() => {
     if (!sortByCommit) return folders;
     return [...folders].sort((a, b) => {
@@ -198,39 +162,16 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGit
               <ArrowUpDown aria-hidden="true" />
               {t('workspace.sortByCommit')} {sortByCommit ? (commitSortAsc ? ' ↑' : ' ↓') : ''}
             </button>
-            <AddFolderActions onAddFolder={onAddFolder} onAddGitRepositories={onAddGitRepositories} webMode={webMode} />
+            <AddFolderActions onAddFolder={onAddFolder} onAddGitRepositories={onAddGitRepositories} />
           </>
         )}
       />
-
-      {webMode && (
-        <section
-          className={dragActive ? 'workspace-dropzone active' : 'workspace-dropzone'}
-          onDragOver={handleDragOver}
-          onDragEnter={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          <div className="workspace-dropzone-copy">
-            <span className="status-pill">{t('workspace.webMode')}</span>
-            <h2>{t('workspace.webDropTitle')}</h2>
-            <p>{t('workspace.webDropDescription')}</p>
-            <div className="workspace-dropzone-note">{t('workspace.webDropNote')}</div>
-          </div>
-          <div className="action-strip workspace-dropzone-actions">
-            <button className="primary" onClick={() => void onAddFolder()} disabled={importing}>
-              {importing ? t('workspace.importing') : t('workspace.webPickFolder')}
-            </button>
-          </div>
-          {importError && <div className="settings-field-note error">{importError}</div>}
-        </section>
-      )}
 
       {sortedFolders.length === 0 ? (
         <EmptyState
           title={t('workspace.emptyTitle')}
           description={t('workspace.addFirst')}
-          action={<AddFolderActions onAddFolder={onAddFolder} onAddGitRepositories={onAddGitRepositories} webMode={webMode} />}
+          action={<AddFolderActions onAddFolder={onAddFolder} onAddGitRepositories={onAddGitRepositories} />}
         />
       ) : (
         <div className="workspace-grid">
@@ -251,7 +192,7 @@ export default function WorkspaceView({ folders, activeId, onAddFolder, onAddGit
                 <details className="workspace-folder-menu">
                   <summary aria-label={t('workspace.moreActions')} title={t('workspace.moreActions')}><MoreHorizontal aria-hidden="true" /></summary>
                   <div className="workspace-folder-menu-popover">
-                    {!folder.isAvailable && !webMode ? (
+                    {!folder.isAvailable ? (
                       <button
                         type="button"
                         className="icon-text-button"

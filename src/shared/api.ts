@@ -196,9 +196,8 @@ export interface TreeNodeContextMenuRequest {
 }
 
 export interface ApiRuntimeInfo {
-  mode: 'electron' | 'web';
+  mode: 'tauri';
   supportsNativeFolderSelection: boolean;
-  supportsDirectoryDropImport: boolean;
   supportsFileWrite: boolean;
   supportsExternalLinks: boolean;
 }

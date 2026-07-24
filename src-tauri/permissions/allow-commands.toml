@@ -1,0 +1,38 @@
+[[permission]]
+identifier = "allow-commands"
+description = "Allow Code Line Analysis commands"
+commands.allow = [
+  "folders_add",
+  "folders_add_git_repositories",
+  "folders_list",
+  "folders_relocate",
+  "folders_remove",
+  "folders_get_rules",
+  "folders_set_rules",
+  "folders_get_duplicate_min_lines",
+  "folders_set_duplicate_min_lines",
+  "folders_get_duplicate_rules",
+  "folders_set_duplicate_rules",
+  "scan_run",
+  "scan_cancel",
+  "settings_get_global_rules",
+  "settings_set_global_rules",
+  "stats_summary",
+  "stats_tree",
+  "stats_top_files",
+  "stats_top_functions",
+  "stats_api_routes",
+  "stats_file_relations",
+  "stats_laravel_schema",
+  "stats_tags",
+  "stats_file_tags",
+  "stats_heatmap",
+  "stats_duplicates",
+  "file_read",
+  "file_write",
+  "file_meta",
+  "git_file_info",
+  "git_repo_info",
+  "system_open_external",
+  "system_show_tree_node_context_menu"
+]

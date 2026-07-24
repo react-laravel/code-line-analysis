@@ -37,7 +37,6 @@ import LaravelSchemaView from './pages/LaravelSchemaView';
 import EditorView from './pages/EditorView';
 import WorkspaceView from './pages/WorkspaceView';
 import { useI18n, type Language } from './i18n';
-import { isWebRuntime, stageDroppedFolderImport } from './runtime';
 import { useTheme, type ThemeMode } from './theme';
 
 const primaryNavItems = [
@@ -66,7 +65,6 @@ function normalizeRules(value: FolderRules | null | undefined): FolderRules {
 }
 
 export default function App() {
-  const webMode = isWebRuntime();
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [activeSummary, setActiveSummary] = useState<FolderStats | null>(null);
@@ -281,17 +279,6 @@ export default function App() {
     alert(t('workspace.gitRepositoriesAdded', { count: addedFolders.length }));
   }, [navigate, refreshFolders, scanAddedFolder, t]);
 
-  const handleImportDroppedFolder = useCallback(async (dataTransfer: DataTransfer) => {
-    const token = await stageDroppedFolderImport(dataTransfer);
-    if (!token) return;
-
-    const folder = await window.api.folders.add(token);
-    await refreshFolders();
-    setActiveId(folder.id);
-    navigate('/dashboard');
-    scanAddedFolder(folder.id);
-  }, [navigate, refreshFolders, scanAddedFolder]);
-
   const handleOpenFolder = useCallback((folderId: number) => {
     setActiveId(folderId);
     navigate('/dashboard');
@@ -394,7 +381,7 @@ export default function App() {
               <div className={active.isAvailable ? 'sidebar-workspace-status' : 'sidebar-workspace-status missing'}>
                 <span className="status-dot" aria-hidden="true" />
                 <span className="sidebar-workspace-path">{active.isAvailable ? active.rootPath : t('workspace.locationMissing')}</span>
-                {!active.isAvailable && !webMode ? (
+                {!active.isAvailable ? (
                   <button type="button" className="sidebar-relocate-button" onClick={() => void handleRelocateFolder(active)}>
                     {t('workspace.relocate')}
                   </button>
@@ -491,11 +478,9 @@ export default function App() {
                 activeId={activeId}
                 onAddFolder={handleAddFolder}
                 onAddGitRepositories={handleAddGitRepositories}
-                onImportDroppedFolder={handleImportDroppedFolder}
                 onOpenFolder={handleOpenFolder}
                 onRemoveFolder={handleRemoveFolder}
                 onRelocateFolder={handleRelocateFolder}
-                webMode={webMode}
               />
             )}
           />
@@ -516,7 +501,7 @@ export default function App() {
           <Route path="/files" element={<FilesView folder={active} scanRevision={scanRevision} />} />
           <Route path="/tags" element={<TagsView folder={active} scanRevision={scanRevision} />} />
           <Route path="/top" element={<TopView folder={active} scanRevision={scanRevision} />} />
-          <Route path="/heatmap" element={<HeatmapView folder={active} scanRevision={scanRevision} webMode={webMode} />} />
+          <Route path="/heatmap" element={<HeatmapView folder={active} scanRevision={scanRevision} />} />
           <Route path="/api-routes" element={<ApiRoutesView folder={active} scanRevision={scanRevision} />} />
           <Route path="/relations" element={<RelationsView folder={active} scanRevision={scanRevision} />} />
           <Route path="/laravel-schema" element={<LaravelSchemaView folder={active} scanRevision={scanRevision} />} />

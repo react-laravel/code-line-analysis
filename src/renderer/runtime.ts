@@ -1,26 +1,16 @@
-import { createBrowserApi, stageBrowserDropImport } from './web/api';
+import { createTauriApi, isTauriRuntime } from './runtime/tauri-api';
 
 declare global {
   interface Window {
-    __codeLineRuntime?: 'electron' | 'web';
+    __codeLineRuntime?: 'tauri';
   }
 }
 
+/** Desktop shell only — requires Tauri runtime. */
 export function ensureRuntimeApi(): void {
-  if (typeof window.api === 'undefined') {
-    window.api = createBrowserApi();
-    window.__codeLineRuntime = 'web';
-    return;
+  if (!isTauriRuntime()) {
+    throw new Error('Code Line Analysis requires the Tauri desktop runtime. Run `npm run dev`.');
   }
-
-  window.__codeLineRuntime = 'electron';
-}
-
-export function isWebRuntime(): boolean {
-  return window.__codeLineRuntime === 'web';
-}
-
-export async function stageDroppedFolderImport(dataTransfer: DataTransfer): Promise<string | null> {
-  if (!isWebRuntime()) return null;
-  return stageBrowserDropImport(dataTransfer);
+  window.api = createTauriApi();
+  window.__codeLineRuntime = 'tauri';
 }

@@ -9,7 +9,6 @@ import { escapeHtml } from '../utils/escapeHtml';
 interface Props {
   folder: FolderRow | null;
   scanRevision: number;
-  webMode: boolean;
 }
 type SortKey = 'date' | 'files' | 'lines';
 
@@ -18,7 +17,7 @@ const CHART_MUTED = '#8b949e';
 const CHART_BORDER = '#2a313c';
 const CHART_TOOLTIP_BACKGROUND = '#161b22';
 
-export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
+export default function HeatmapView({ folder, scanRevision }: Props) {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<HeatmapBucket[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('date');
@@ -120,7 +119,7 @@ export default function HeatmapView({ folder, scanRevision, webMode }: Props) {
     <div className="heatmap-page">
       <PageHeader
         title={t('heatmap.title')}
-        description={webMode ? t('heatmap.webSubtitle') : t('heatmap.subtitle')}
+        description={t('heatmap.subtitle')}
         actions={(
           <label className="page-select-field">
             <span>{t('heatmap.window')}</span>

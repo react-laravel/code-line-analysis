@@ -2,7 +2,7 @@ name: Deploy (Self-hosted)
 
 on:
   push:
-    branches: [main]
+    branches: [electron]
   workflow_dispatch:
 
 concurrency:

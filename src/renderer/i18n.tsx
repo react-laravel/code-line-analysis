@@ -114,7 +114,6 @@ const en = {
   'heatmap.subtitle': 'Buckets are aggregated from Git history, not file mtimes.',
   'heatmap.title': 'Recent Activity (Git)',
   'heatmap.totalLinesSinceDate': 'Changed Lines',
-  'heatmap.webSubtitle': 'Buckets are aggregated from imported file modification times in browser mode.',
   'heatmap.window': 'Window:',
   'language.english': 'English',
   'language.simplifiedChinese': 'Simplified Chinese',
@@ -311,8 +310,6 @@ const en = {
   'workspace.noCommits': 'No commits yet',
   'workspace.noRemoteOrigin': 'No remote origin',
   'workspace.noGitRepositoriesFound': 'No Git repositories were found in the selected folder’s direct subfolders.',
-  'workspace.importFailed': 'Unable to import the folder. Try a Chromium-based browser or use the picker button.',
-  'workspace.importing': 'Importing...',
   'workspace.openFolder': 'Open',
   'workspace.relocate': 'Locate Folder',
   'workspace.relocateFailed': 'Unable to update the workspace location: {detail}',
@@ -323,11 +320,6 @@ const en = {
   'workspace.sortByCommitTitle': 'Sort by last commit',
   'workspace.subtitle': 'Pick a folder to view its dashboard, or add another project here.',
   'workspace.title': 'Workspace',
-  'workspace.webDropDescription': 'Drop a local folder here to analyze it directly in the browser with the same dashboard and drill-down views.',
-  'workspace.webDropNote': 'Browser mode keeps analysis local to this tab. Git metadata, native context menus, and persistent file writes are unavailable.',
-  'workspace.webDropTitle': 'Drop a folder to start analyzing',
-  'workspace.webMode': 'Web Mode',
-  'workspace.webPickFolder': 'Choose Folder',
 } as const;
 
 type TranslationKey = keyof typeof en;
@@ -442,7 +434,6 @@ const zhCN: Record<TranslationKey, string> = {
   'heatmap.subtitle': '按 Git 历史聚合最近活动，不再依赖文件修改时间。',
   'heatmap.title': '近期活动（Git）',
   'heatmap.totalLinesSinceDate': '变更行数',
-  'heatmap.webSubtitle': '网页模式下会按导入文件的修改时间聚合最近活动。',
   'heatmap.window': '窗口：',
   'language.english': '英语',
   'language.simplifiedChinese': '简体中文',
@@ -639,8 +630,6 @@ const zhCN: Record<TranslationKey, string> = {
   'workspace.noCommits': '暂无提交记录',
   'workspace.noRemoteOrigin': '暂无 remote origin',
   'workspace.noGitRepositoriesFound': '所选文件夹的直接子目录中没有发现 Git 仓库。',
-  'workspace.importFailed': '导入文件夹失败。请尝试使用 Chromium 内核浏览器，或改用文件夹选择按钮。',
-  'workspace.importing': '导入中...',
   'workspace.openFolder': '打开',
   'workspace.relocate': '重新定位目录',
   'workspace.relocateFailed': '更新工作区目录失败：{detail}',
@@ -651,11 +640,6 @@ const zhCN: Record<TranslationKey, string> = {
   'workspace.sortByCommitTitle': '按上次提交时间排序',
   'workspace.subtitle': '选择一个文件夹查看仪表盘，也可以在这里继续添加项目。',
   'workspace.title': '工作区',
-  'workspace.webDropDescription': '把本地文件夹拖到这里，就能直接在浏览器中完成分析，并继续使用当前这套仪表盘和钻取视图。',
-  'workspace.webDropNote': '网页模式只在当前标签页内本地分析。Git 元数据、原生右键菜单和持久化写回文件暂不可用。',
-  'workspace.webDropTitle': '拖入文件夹开始分析',
-  'workspace.webMode': '网页模式',
-  'workspace.webPickFolder': '选择文件夹',
 };
 
 const translations: Record<Language, Record<TranslationKey, string>> = {
