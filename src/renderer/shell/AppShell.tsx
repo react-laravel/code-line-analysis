@@ -13,6 +13,7 @@ import { useI18n } from '../i18n';
 import { useActiveFolder, useAppStore } from '../store/app-store';
 import { useScanStore } from '../store/scan-store';
 import {
+  contentLayoutOf,
   editorPathOf,
   isTabDirty,
   routeAfterClosing,
@@ -25,6 +26,7 @@ import {
 import { useFolderActions } from '../hooks/useFolderActions';
 import { useShortcuts } from '../hooks/useShortcuts';
 import { NAV_ITEMS } from './nav-items';
+import ContentRegion from './ContentRegion';
 import Explorer from './Explorer';
 import SideNav from './SideNav';
 import StatusBar from './StatusBar';
@@ -72,6 +74,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useShortcuts();
 
   const editorRelPath = editorPathOf(location.pathname);
+  const contentLayout = contentLayoutOf(location.pathname);
   const viewPath = folderId != null
     ? lastViewPathByFolder[folderId] ?? '/overview'
     : '/';
@@ -358,8 +361,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           ) : null}
 
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {showProgressLine ? (
+          <ContentRegion
+            layout={contentLayout}
+            restoreKey={contentScrollKey}
+            progress={showProgressLine ? (
               <ProgressBar
                 variant="line"
                 status={scanStatus}
@@ -367,25 +372,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 className="absolute inset-x-0 top-0 z-[var(--ds-z-chrome)]"
               />
             ) : null}
-            {/* One scroll region per view, restored per route — which for the
-                Code view means per lens, since the lens rides in the query
-                string. This is what replaces `DuplicatesView`'s hand-rolled
-                `sessionStorage` + `document.querySelector('.content')` pair.
-
-                The padding and the flex column are what `.content` used to
-                supply from `styles.css`; they moved here when that file was
-                deleted (chunk 12). The column is load-bearing — `EditorTab`
-                sizes Monaco off it — and `[&>*]:w-full` preserves the old
-                `.content > * { width: 100% }` rule. The `max-width: 900px`
-                padding override went away with the stylesheet: the Tauri
-                window enforces `minWidth: 1024` (`src-tauri/tauri.conf.json`). */}
-            <ScrollArea
-              className="flex flex-col px-8 pt-7 pb-10 [&>*]:w-full"
-              restoreKey={contentScrollKey}
-            >
-              {children}
-            </ScrollArea>
-          </div>
+          >
+            {children}
+          </ContentRegion>
         </div>
       </SplitPane>
 

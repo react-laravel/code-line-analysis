@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderPlus, FolderTree, GitBranch, Settings2 } from 'lucide-react';
+import { EllipsisVertical, FolderPlus, FolderTree, GitBranch, Settings2 } from 'lucide-react';
 import type { FolderRow } from '../../shared/api';
 import type { MenuItem } from '../components/ui/_internal/types';
 import { Badge, StatusDot } from '../components/ui/badge';
@@ -130,7 +130,7 @@ export default function FolderSwitcher() {
         items={menuItems}
         align="start"
         trigger={
-          <IconButton icon={FolderPlus} label={t('app.folderActions')} size="sm" variant="ghost" />
+          <IconButton icon={EllipsisVertical} label={t('app.folderActions')} size="sm" variant="ghost" />
         }
       />
     </div>

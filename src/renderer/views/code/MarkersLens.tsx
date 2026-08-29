@@ -10,6 +10,7 @@ import {
   type Column,
   type ToggleOption,
 } from '../../components/ui';
+import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { tagTone } from '../../lib/tag-tone';
@@ -110,7 +111,8 @@ export function useMarkersLens({ folder, query, clearQuery, active }: LensArgs):
     {
       id: 'file',
       header: t('common.file'),
-      cell: group => <span className="font-mono text-xs">{group.relPath}</span>,
+      width: 260,
+      cell: group => <PathCell path={group.relPath} />,
     },
     {
       id: 'lines',

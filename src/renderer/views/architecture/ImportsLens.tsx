@@ -3,6 +3,7 @@ import type { EChartsOption } from 'echarts';
 import { useNavigate } from 'react-router-dom';
 import type { FileRelationGraph, FileRelationNode } from '../../../shared/api';
 import {
+  Badge,
   Chart,
   Checkbox,
   DataTable,
@@ -13,7 +14,9 @@ import {
   type ChartTokens,
   type Column,
 } from '../../components/ui';
+import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
+import { splitRelPath } from '../../lib/path';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useI18n } from '../../i18n';
 import { firstFormatterParam } from '../../utils/echartsParams';
@@ -44,11 +47,6 @@ const EMPTY_GRAPH: FileRelationGraph = {
   connectedFiles: 0,
   unresolvedCount: 0,
 };
-
-function basename(relPath: string): string {
-  const parts = relPath.split('/').filter(Boolean);
-  return parts[parts.length - 1] ?? relPath;
-}
 
 function nodeScore(node: FileRelationNode): number {
   return (node.incoming * 2) + node.outgoing + Math.min(12, Math.round(node.code / 120));
@@ -102,8 +100,8 @@ export function useImportsLens({ folder, active }: ArchLensArgs): ArchLens {
   );
 
   const topConnectedColumns = useMemo<Column<FileRelationNode>[]>(() => [
-    { id: 'relPath', header: t('common.file'), mono: true, cell: node => node.relPath },
-    { id: 'lang', header: t('common.language'), cell: node => node.lang },
+    { id: 'relPath', header: t('common.file'), width: 260, cell: node => <PathCell path={node.relPath} /> },
+    { id: 'lang', header: t('common.language'), cell: node => <Badge size="xs">{node.lang}</Badge> },
     { id: 'incoming', header: t('relations.incoming'), align: 'right', cell: node => node.incoming.toLocaleString(locale) },
     { id: 'outgoing', header: t('relations.outgoing'), align: 'right', cell: node => node.outgoing.toLocaleString(locale) },
     { id: 'code', header: t('common.code'), align: 'right', cell: node => node.code.toLocaleString(locale) },
@@ -231,7 +229,7 @@ export function useImportsLens({ folder, active }: ArchLensArgs): ArchLens {
           categories: categoryNames.map(group => ({ name: group })),
           data: visibleGraph.nodes.map(node => ({
             id: node.id,
-            name: basename(node.relPath),
+            name: splitRelPath(node.relPath).name,
             relPath: node.relPath,
             lang: node.lang,
             code: node.code,
@@ -246,7 +244,7 @@ export function useImportsLens({ folder, active }: ArchLensArgs): ArchLens {
             symbol: node.isTest ? 'diamond' : 'circle',
             itemStyle: node.isTest ? { borderColor: tokens.markRing, borderWidth: 2 } : undefined,
             label: prominentIds.has(node.id)
-              ? { show: true, color: tokens.ink, formatter: basename(node.relPath), overflow: 'truncate', width: 120 }
+              ? { show: true, color: tokens.ink, formatter: splitRelPath(node.relPath).name, overflow: 'truncate', width: 120 }
               : { show: false },
           })),
           links: visibleGraph.edges.map(edge => ({

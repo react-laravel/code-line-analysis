@@ -281,7 +281,7 @@ export default function EditorTab({ folder }: Props) {
   if (!folder) return <NoFolderState />;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <EditorDocumentToolbar
         relPath={decodedPath}
         meta={meta}
@@ -308,7 +308,7 @@ export default function EditorTab({ folder }: Props) {
           )}
         />
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Monaco stays mounted across tab switches — only `path` changes, so
               it keeps a model (and its undo stack) per file. The skeleton
               covers it while the next file is being read. */}

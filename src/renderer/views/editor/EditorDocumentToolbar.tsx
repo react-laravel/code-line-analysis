@@ -3,6 +3,7 @@ import { FileCode2 } from 'lucide-react';
 import type { FileMeta, TagRow } from '../../../shared/api';
 import { Badge, Button, Kbd, Switch, Toolbar, type MenuItem } from '../../components/ui';
 import { useI18n } from '../../i18n';
+import { splitRelPath } from '../../lib/path';
 import { tagTone } from '../../lib/tag-tone';
 
 interface Props {
@@ -41,17 +42,18 @@ export default function EditorDocumentToolbar({
     [tags],
   );
 
+  const { dir, name } = splitRelPath(relPath);
   const metaLine = meta
     ? `${meta.lang} · ${meta.total.toLocaleString(locale)} ${t('common.lines')} · ${(meta.size / 1024).toFixed(1)} KB · ${t('editor.mtime')} ${new Date(meta.mtime).toLocaleString(locale)}`
     : undefined;
+  const subtitle = [dir || null, metaLine].filter(Boolean).join(' · ') || undefined;
 
   return (
     <Toolbar
       sticky={false}
-      className="rounded-lg border border-border"
       icon={FileCode2}
-      title={<span className="font-mono">{relPath}</span>}
-      subtitle={metaLine}
+      title={<span className="font-mono" title={relPath}>{name}</span>}
+      subtitle={subtitle}
       overflowLabel={t('common.more')}
       overflow={overflow}
       actions={(

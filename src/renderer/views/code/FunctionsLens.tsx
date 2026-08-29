@@ -12,6 +12,7 @@ import {
   type Column,
   type SortState,
 } from '../../components/ui';
+import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useI18n } from '../../i18n';
@@ -65,7 +66,7 @@ export function useFunctionsLens({ folder, query, clearQuery, active }: LensArgs
   }, [funcs, locale, minLength, query, sort]);
 
   const columns = useMemo<Column<TopFunction>[]>(() => [
-    { id: 'relPath', header: t('common.file'), sortable: true, mono: true, cell: fn => fn.relPath },
+    { id: 'relPath', header: t('common.file'), sortable: true, width: 260, cell: fn => <PathCell path={fn.relPath} /> },
     { id: 'name', header: t('top.function'), sortable: true, mono: true, cell: fn => fn.name },
     { id: 'startLine', header: t('top.start'), sortable: true, align: 'right', cell: fn => fn.startLine.toLocaleString(locale) },
     { id: 'endLine', header: t('top.end'), sortable: true, align: 'right', cell: fn => fn.endLine.toLocaleString(locale) },

@@ -1,4 +1,5 @@
 import { Command, Moon, PanelLeft, RefreshCw, Settings, Sun } from 'lucide-react';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { IconButton } from '../components/ui/icon-button';
 import { SplitButton } from '../components/ui/split-button';
@@ -86,16 +87,16 @@ export default function TitleBar() {
         onClick={toggleSidebar}
       />
       <FolderSwitcher />
-      <div className="flex min-w-0 flex-1 items-baseline gap-2 pl-1">
+      <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
         {folder ? (
           <span className="truncate font-mono text-xs text-fg-muted" title={folder.rootPath}>
             {folder.rootPath}
           </span>
         ) : null}
         {folder ? (
-          <span className="shrink-0 text-xs text-fg-subtle">
+          <Badge size="xs" tone={lastScanAt ? 'neutral' : 'warning'} dot className="shrink-0">
             {lastScanAt ? t('app.scannedAgo', { ago: formatAgo(lastScanAt, locale) }) : t('app.neverScanned')}
-          </span>
+          </Badge>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">

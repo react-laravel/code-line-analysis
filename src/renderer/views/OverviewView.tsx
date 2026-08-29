@@ -1,6 +1,17 @@
 import { useCallback, useMemo } from 'react';
 import type { EChartsOption } from 'echarts';
-import { RefreshCw } from 'lucide-react';
+import {
+  AlignLeft,
+  Code2,
+  Files,
+  FlaskConical,
+  MessageSquareText,
+  Minus,
+  Play,
+  RefreshCw,
+  Tags,
+  TextQuote,
+} from 'lucide-react';
 import type { FolderRow, FolderStats } from '../../shared/api';
 import {
   Button,
@@ -9,7 +20,6 @@ import {
   EmptyState,
   Panel,
   Skeleton,
-  StatTile,
   Toolbar,
   type ChartTokens,
   type Column,
@@ -22,6 +32,7 @@ import { axisValueLabelOf, firstFormatterParam } from '../utils/echartsParams';
 import { escapeHtml } from '../utils/escapeHtml';
 import { useRevision } from '../store/app-store';
 import ActivityPanel from './overview/ActivityPanel';
+import { MetricGrid, MetricGridSkeleton, type OverviewMetric } from './overview/MetricGrid';
 
 type Translator = ReturnType<typeof useI18n>['t'];
 type LangRow = FolderStats['byLang'][number];
@@ -231,10 +242,10 @@ interface Props {
 
 /**
  * `⌘1` — the merge of the old `/dashboard` and `/heatmap` routes (blueprint
- * §2.2). Nine `StatTile`s, one "By language" `Panel` whose donut ships the
- * per-language table as its relief channel (DESIGN-SYSTEM §1.6 makes that
- * mandatory: aqua/yellow/magenta are sub-3:1 on a light surface), and the
- * Activity panel that used to be a whole route of its own.
+ * §2.2). Three hero metrics, a secondary tile row, one "By language" `Panel`
+ * whose donut ships the per-language table as its relief channel
+ * (DESIGN-SYSTEM §1.6 makes that mandatory: aqua/yellow/magenta are sub-3:1
+ * on a light surface), and the Activity panel that used to be a whole route.
  */
 export default function OverviewView({ folder }: Props) {
   const scanRevision = useRevision();
@@ -257,14 +268,39 @@ export default function OverviewView({ folder }: Props) {
     load: loadStats,
   });
 
+  const languageTotal = stats?.totalLines ?? 0;
   const languageColumns = useMemo<Column<LangRow>[]>(() => [
     { id: 'lang', header: t('common.language'), cell: row => row.lang },
+    {
+      id: 'share',
+      header: t('overview.share'),
+      width: 128,
+      truncate: false,
+      cell: row => {
+        const percent = languageTotal > 0 ? (row.total / languageTotal) * 100 : 0;
+        const label = `${percent.toLocaleString(locale, {
+          minimumFractionDigits: percent >= 10 ? 0 : 1,
+          maximumFractionDigits: percent >= 10 ? 0 : 1,
+        })}%`;
+        return (
+          <span className="flex items-center gap-2">
+            <span className="h-1.5 w-16 overflow-hidden rounded-full bg-inset">
+              <span
+                className="block h-full rounded-full bg-accent"
+                style={{ width: `${Math.min(100, percent)}%` }}
+              />
+            </span>
+            <span className="ds-tabular min-w-8 text-right text-2xs text-fg-muted">{label}</span>
+          </span>
+        );
+      },
+    },
     { id: 'files', header: t('common.files'), align: 'right', cell: row => row.files.toLocaleString(locale) },
     { id: 'total', header: t('common.total'), align: 'right', cell: row => row.total.toLocaleString(locale) },
     { id: 'code', header: t('common.code'), align: 'right', cell: row => row.code.toLocaleString(locale) },
     { id: 'comment', header: t('common.comment'), align: 'right', cell: row => row.comment.toLocaleString(locale) },
     { id: 'blank', header: t('common.blank'), align: 'right', cell: row => row.blank.toLocaleString(locale) },
-  ], [locale, t]);
+  ], [languageTotal, locale, t]);
 
   const { rows: chartRows, foldedCount } = useMemo(
     () => chartLanguages(stats?.byLang ?? [], t('common.other')),
@@ -280,17 +316,40 @@ export default function OverviewView({ folder }: Props) {
     [chartRows, locale, t],
   );
 
-  if (!folder) return <NoFolderState />;
-
-  const annotationTotal = stats
-    ? Object.values(stats.tagCounts).reduce((sum, count) => sum + count, 0)
-    : 0;
-  const annotationBreakdown = stats
-    ? Object.entries(stats.tagCounts)
+  const metrics = useMemo<OverviewMetric[]>(() => {
+    if (!stats) return [];
+    const annotationTotal = Object.values(stats.tagCounts).reduce((sum, count) => sum + count, 0);
+    const annotationBreakdown = Object.entries(stats.tagCounts)
       .filter(([, count]) => count > 0)
       .map(([kind, count]) => `${kind} ${count.toLocaleString(locale)}`)
-      .join(' · ')
-    : '';
+      .join(' · ');
+    return [
+      { id: 'files', size: 'md', icon: Files, label: t('common.files'), value: stats.totalFiles.toLocaleString(locale) },
+      { id: 'lines', size: 'md', icon: AlignLeft, label: t('dashboard.totalLines'), value: stats.totalLines.toLocaleString(locale) },
+      {
+        id: 'code',
+        size: 'md',
+        icon: Code2,
+        label: t('dashboard.totalCode'),
+        value: stats.totalCode.toLocaleString(locale),
+        className: 'col-span-2 min-[720px]:col-span-1',
+      },
+      { id: 'runtime', icon: Play, label: t('dashboard.runtimeCode'), value: stats.runtimeCode.toLocaleString(locale) },
+      { id: 'test', icon: FlaskConical, label: t('dashboard.testCode'), value: stats.testCode.toLocaleString(locale) },
+      { id: 'comments', icon: MessageSquareText, label: t('common.comments'), value: stats.totalComment.toLocaleString(locale) },
+      { id: 'blank', icon: Minus, label: t('common.blank'), value: stats.totalBlank.toLocaleString(locale) },
+      { id: 'block', icon: TextQuote, label: t('dashboard.blockCommentLines'), value: stats.totalBlockComment.toLocaleString(locale) },
+      {
+        id: 'annotations',
+        icon: Tags,
+        label: t('dashboard.annotations'),
+        value: annotationTotal.toLocaleString(locale),
+        hint: annotationBreakdown || undefined,
+      },
+    ];
+  }, [locale, stats, t]);
+
+  if (!folder) return <NoFolderState />;
 
   const languagesTable = (
     <div className="min-w-0">
@@ -332,11 +391,7 @@ export default function OverviewView({ folder }: Props) {
         />
       ) : loading && !stats ? (
         <>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
-            {Array.from({ length: 9 }, (_, index) => (
-              <Skeleton key={index} variant="tile" />
-            ))}
-          </div>
+          <MetricGridSkeleton />
           <div className="grid gap-3 min-[900px]:grid-cols-2">
             <Skeleton variant="tile" className="h-64" />
             <Skeleton variant="tile" className="h-64" />
@@ -350,21 +405,7 @@ export default function OverviewView({ folder }: Props) {
         />
       ) : (
         <>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
-            <StatTile label={t('common.files')} value={stats.totalFiles.toLocaleString(locale)} />
-            <StatTile label={t('dashboard.totalLines')} value={stats.totalLines.toLocaleString(locale)} />
-            <StatTile label={t('dashboard.totalCode')} value={stats.totalCode.toLocaleString(locale)} />
-            <StatTile label={t('dashboard.runtimeCode')} value={stats.runtimeCode.toLocaleString(locale)} />
-            <StatTile label={t('dashboard.testCode')} value={stats.testCode.toLocaleString(locale)} />
-            <StatTile label={t('common.comments')} value={stats.totalComment.toLocaleString(locale)} />
-            <StatTile label={t('common.blank')} value={stats.totalBlank.toLocaleString(locale)} />
-            <StatTile label={t('dashboard.blockCommentLines')} value={stats.totalBlockComment.toLocaleString(locale)} />
-            <StatTile
-              label={t('dashboard.annotations')}
-              value={annotationTotal.toLocaleString(locale)}
-              hint={annotationBreakdown || undefined}
-            />
-          </div>
+          <MetricGrid metrics={metrics} />
 
           <Panel header={t('dashboard.byLanguage')}>
             {/* The donut figure is `display: contents`, so its chart area and its

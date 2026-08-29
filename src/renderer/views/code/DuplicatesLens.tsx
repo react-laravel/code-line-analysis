@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Copy, FileCode2, Files, SlidersHorizontal } from 'lucide-react';
 import type { DuplicateCluster } from '../../../shared/api';
 import { Badge, Button, EmptyState, Panel } from '../../components/ui';
+import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
 import { useI18n } from '../../i18n';
 import { useAppStore, useRevision } from '../../store/app-store';
@@ -184,7 +185,7 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
                 className="grid w-full min-w-0 grid-cols-[14px_minmax(0,1fr)_auto_14px] items-center gap-2 border-b border-border px-3 py-1.5 text-left text-sm text-fg last:border-b-0 hover:bg-hover"
               >
                 <FileCode2 aria-hidden strokeWidth={1.75} size={14} className="text-fg-subtle" />
-                <span className="min-w-0 truncate font-mono text-xs">{occurrence.relPath}</span>
+                <PathCell path={occurrence.relPath} className="min-w-0" />
                 <span className="text-2xs whitespace-nowrap text-fg-muted">
                   {t('duplicates.lineRange', { start: occurrence.startLine, end: occurrence.endLine })}
                 </span>

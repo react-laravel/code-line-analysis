@@ -11,9 +11,11 @@ import {
   type Column,
   type SortState,
 } from '../../components/ui';
+import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useI18n } from '../../i18n';
+import { fileExt } from '../../lib/path';
 import { useRevision } from '../../store/app-store';
 import { useScanStore } from '../../store/scan-store';
 import { sortRows, type CodeLens, type LensArgs } from './lens';
@@ -25,12 +27,6 @@ const MAX_VISIBLE_ROWS = 1000;
 
 interface FileRowView extends TopFile {
   ext: string;
-}
-
-function extOf(relPath: string): string {
-  const base = relPath.split('/').pop() || relPath;
-  const dot = base.lastIndexOf('.');
-  return dot < 0 ? NO_EXTENSION : base.slice(dot + 1).toLowerCase();
 }
 
 /**
@@ -61,7 +57,7 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
   });
 
   const rows = useMemo<FileRowView[]>(
-    () => files.map(file => ({ ...file, ext: extOf(file.relPath) })),
+    () => files.map(file => ({ ...file, ext: fileExt(file.relPath) || NO_EXTENSION })),
     [files],
   );
 
@@ -115,8 +111,8 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
     : t('files.noFilters');
 
   const columns = useMemo<Column<FileRowView>[]>(() => [
-    { id: 'relPath', header: t('common.path'), sortable: true, mono: true, cell: file => file.relPath },
-    { id: 'lang', header: t('common.lang'), sortable: true, cell: file => file.lang },
+    { id: 'relPath', header: t('common.path'), sortable: true, width: 280, cell: file => <PathCell path={file.relPath} /> },
+    { id: 'lang', header: t('common.lang'), sortable: true, cell: file => <Badge size="xs">{file.lang}</Badge> },
     {
       id: 'ext',
       header: t('files.ext'),

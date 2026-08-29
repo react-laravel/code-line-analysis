@@ -83,6 +83,17 @@ export function editorPathOf(pathname: string): string | null {
   }
 }
 
+/**
+ * How the content pane is laid out. `document` is a full-bleed flex child
+ * (the editor). `report` is a padded, restored ScrollArea. Owned next to
+ * `editorPathOf` so the shell never sniffs a path for chrome reasons.
+ */
+export type ContentLayout = 'document' | 'report';
+
+export function contentLayoutOf(pathname: string): ContentLayout {
+  return editorPathOf(pathname) ? 'document' : 'report';
+}
+
 export function tabId(folderId: number, relPath: string): string {
   return `${folderId}:${relPath}`;
 }

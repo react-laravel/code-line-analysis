@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import type { ApiRouteEntry } from '../../../shared/api';
+import PathCell from '../../components/PathCell';
 import { Badge, DataTable, Panel, type BadgeProps, type Column } from '../../components/ui';
 import {
   methodLabel,
@@ -77,7 +78,6 @@ export function buildColumnPlan(
 
   const plan: PlanColumn[] = [
     { header: t('apiRoutes.path'), key: 'path', render: route => <span className="font-mono text-xs">{tailPath(route.path, groupDepth)}</span> },
-    { header: t('apiRoutes.source'), key: 'source', render: route => <span className="font-mono text-xs">{route.sourceFile}</span> },
   ];
 
   if (!allSame(methods)) {
@@ -144,11 +144,14 @@ export function buildColumnPlan(
     });
   }
 
+  // Source is not seeded on `plan`. Methods / handler / routeName follow the
+  // same rule: a column that is always present *and* pushed here would render
+  // twice. The seed is path only; this branch is the one source column.
   if (!allSame(sources)) {
     plan.splice(plan.length, 0, {
       header: t('apiRoutes.source'),
       key: 'source',
-      render: route => <span className="font-mono text-xs">{route.sourceFile}</span>,
+      render: route => <PathCell path={route.sourceFile} />,
     });
   } else if (sources.length > 0) {
     const sample = routes[0].sourceFile;
