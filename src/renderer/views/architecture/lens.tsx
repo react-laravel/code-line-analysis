@@ -45,7 +45,7 @@ export interface ArchLens {
   overflow?: MenuItem[];
   /**
    * Extra verbs for `⌘K` only — things that already have a good primary
-   * affordance but must still be reachable by name (the Routes lens's eight
+   * affordance but must still be reachable by name (the Routes lens's
    * chart variants live behind "View as ▾", blueprint §2.8).
    */
   commands?: MenuItem[];

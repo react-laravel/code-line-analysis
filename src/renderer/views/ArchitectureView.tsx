@@ -97,7 +97,7 @@ function ArchitectureSurface({ folder }: { folder: FolderRow }) {
   }, [params, setParams]);
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 grid-cols-1 gap-3">
       <Toolbar
         sticky={false}
         className="rounded-lg border border-border"
@@ -111,7 +111,7 @@ function ArchitectureSurface({ folder }: { folder: FolderRow }) {
               <SearchInput
                 size="sm"
                 data-view-search
-                wrapperClassName="w-[min(320px,40vw)]"
+                wrapperClassName="w-[clamp(120px,20vw,240px)]"
                 aria-label={t('code.search')}
                 placeholder={current.searchPlaceholder}
                 value={query}

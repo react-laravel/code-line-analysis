@@ -10,6 +10,7 @@ import { useActiveFolder, useAppStore } from '../store/app-store';
 import { useScanStore } from '../store/scan-store';
 import { useFolderActions } from '../hooks/useFolderActions';
 import FolderSwitcher from './FolderSwitcher';
+import { isTauriRuntime } from '../runtime/tauri-api';
 
 const MINUTE = 60_000;
 
@@ -30,6 +31,8 @@ function formatAgo(timestamp: number, locale: string): string {
  * from two automatic call sites, and Cancel was the app's only scan control.
  */
 export default function TitleBar() {
+  // Native macOS controls share this 36px row instead of adding another titlebar.
+  const nativeTitlebar = isTauriRuntime() && /Mac/i.test(navigator.platform);
   const { locale, t } = useI18n();
   const { theme, setTheme } = useTheme();
   const folder = useActiveFolder();
@@ -76,7 +79,11 @@ export default function TitleBar() {
   );
 
   return (
-    <header className="app-drag-region flex h-titlebar shrink-0 items-center gap-2 border-b border-border bg-surface px-2">
+    <header
+      data-tauri-drag-region
+      data-native-titlebar={nativeTitlebar || undefined}
+      className="app-drag-region flex h-titlebar shrink-0 items-center gap-2 border-b border-border bg-surface px-2 data-[native-titlebar=true]:pl-20"
+    >
       <IconButton
         icon={PanelLeft}
         label={sidebarCollapsed ? t('app.expandSidebar') : t('app.collapseSidebar')}
@@ -87,7 +94,7 @@ export default function TitleBar() {
         onClick={toggleSidebar}
       />
       <FolderSwitcher />
-      <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
+      <div data-tauri-drag-region="deep" className="flex h-full min-w-0 flex-1 items-center gap-2 pl-1">
         {folder ? (
           <span className="truncate font-mono text-xs text-fg-muted" title={folder.rootPath}>
             {folder.rootPath}

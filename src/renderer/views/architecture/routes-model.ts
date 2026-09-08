@@ -4,7 +4,7 @@ import type { TranslationKey } from '../../i18n';
 /**
  * The pure route model behind the Routes lens. Extracted verbatim from the
  * 1375-line `pages/ApiRoutesView.tsx` so the list renderer
- * (`ApiRoutesList.tsx`) and the eight chart variants (`ApiRoutesGraph.tsx`) can
+ * (`ApiRoutesList.tsx`) and the chart variants (`ApiRoutesGraph.tsx`) can
  * be split apart without either of them owning the other's data shaping
  * (blueprint §6 chunk 8 / ADOPTION §1.4).
  *
@@ -19,23 +19,23 @@ export type DisplayMode = 'list' | 'graph';
 
 export type RouteChartVariant =
   | 'force'
-  | 'circular'
   | 'sankey'
-  | 'tree'
-  | 'sunburst'
   | 'treemap'
   | 'heatmap'
   | 'stackedBar';
 
 export const ROUTE_CHART_VARIANTS: RouteChartVariant[] = [
-  'force', 'circular', 'sankey', 'tree', 'sunburst', 'treemap', 'heatmap', 'stackedBar',
+  'stackedBar', 'heatmap', 'treemap', 'sankey', 'force',
 ];
+
+export const ROUTE_METHOD_ORDER = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'PAGE', 'ANY'];
+export const VISIBLE_ANALYSIS_GROUPS = 20;
 
 /**
  * Variants whose marks are placed by a layout pass, so "Re-layout graph" has
  * something to do. Heatmap and stacked bar are axis-bound.
  */
-export const RELAYOUTABLE_VARIANTS: RouteChartVariant[] = ['force', 'circular', 'sankey', 'tree'];
+export const RELAYOUTABLE_VARIANTS: RouteChartVariant[] = ['force', 'sankey'];
 
 export type RouteNodeKind = 'root' | 'framework' | 'group' | 'method';
 
@@ -46,6 +46,8 @@ export interface RouteFlowNode {
   framework?: ApiRouteEntry['framework'];
   method?: string;
   routeCount: number;
+  /** Route-method pairs; a multi-method route contributes once per method. */
+  methodCount?: number;
   methods?: string[];
   sourceCount?: number;
   symbolSize?: number;
@@ -84,6 +86,8 @@ export interface RouteAnalysisGroup {
   label: string;
   displayName: string;
   routeCount: number;
+  methodCount: number;
+  sourceCount: number;
   methodCounts: Record<string, number>;
 }
 
@@ -100,6 +104,12 @@ export interface RouteGroup {
   key: string;
   label: string;
   routes: ApiRouteEntry[];
+}
+
+export interface RouteChartGroupFilter {
+  framework: ApiRouteEntry['framework'];
+  prefix: string;
+  depth: number;
 }
 
 export interface FrameworkRouteSection {
@@ -135,12 +145,9 @@ export function depthButtonLabel(level: number, t: Translate): string {
 }
 
 export function routeChartVariantLabel(variant: RouteChartVariant, t: Translate): string {
-  if (variant === 'circular') return t('apiRoutes.chartCircular');
   if (variant === 'heatmap') return t('apiRoutes.chartHeatmap');
   if (variant === 'sankey') return t('apiRoutes.chartSankey');
   if (variant === 'stackedBar') return t('apiRoutes.chartStackedBar');
-  if (variant === 'tree') return t('apiRoutes.chartTree');
-  if (variant === 'sunburst') return t('apiRoutes.chartSunburst');
   if (variant === 'treemap') return t('apiRoutes.chartTreemap');
   return t('apiRoutes.chartForce');
 }
@@ -156,6 +163,10 @@ export function maxRoutePathDepth(routes: ApiRouteEntry[]): number {
 export function prefixPath(routePath: string, depth: number): string {
   const segments = splitRouteSegments(routePath).slice(0, depth);
   return segments.length > 0 ? `/${segments.join('/')}` : '/';
+}
+
+export function matchesRouteChartGroup(route: ApiRouteEntry, group: RouteChartGroupFilter): boolean {
+  return route.framework === group.framework && prefixPath(route.path, group.depth) === group.prefix;
 }
 
 export function tailPath(routePath: string, depth: number | null): string {
@@ -189,6 +200,10 @@ export function groupNodeId(framework: ApiRouteEntry['framework'], groupLabel: s
 
 export function methodNodeId(method: string): string {
   return `method:${method.toUpperCase()}`;
+}
+
+function routeMethods(route: ApiRouteEntry): string[] {
+  return Array.from(new Set(route.methods.map(method => method.toUpperCase())));
 }
 
 export function buildRouteSections(routes: ApiRouteEntry[], groupDepth: number | null): FrameworkRouteSection[] {
@@ -233,13 +248,17 @@ export function buildRouteSections(routes: ApiRouteEntry[], groupDepth: number |
 }
 
 export function buildRouteFlowGraph(routes: ApiRouteEntry[], groupDepth: number, t: Translate): RouteFlowGraph {
-  const frameworkCounts = new Map<ApiRouteEntry['framework'], number>();
-  const groups = new Map<string, { framework: ApiRouteEntry['framework']; label: string; routeCount: number; methods: Set<string>; sourceFiles: Set<string> }>();
+  const frameworkCounts = new Map<ApiRouteEntry['framework'], { routes: number; methods: number }>();
+  const groups = new Map<string, { framework: ApiRouteEntry['framework']; label: string; routeCount: number; methodCount: number; methods: Set<string>; sourceFiles: Set<string> }>();
   const methodCounts = new Map<string, number>();
   const groupMethodCounts = new Map<string, { framework: ApiRouteEntry['framework']; label: string; method: string; count: number }>();
 
   for (const route of routes) {
-    frameworkCounts.set(route.framework, (frameworkCounts.get(route.framework) ?? 0) + 1);
+    const methods = routeMethods(route);
+    const frameworkCount = frameworkCounts.get(route.framework) ?? { routes: 0, methods: 0 };
+    frameworkCount.routes += 1;
+    frameworkCount.methods += methods.length;
+    frameworkCounts.set(route.framework, frameworkCount);
 
     const label = prefixPath(route.path, groupDepth);
     const key = `${route.framework}|${label}`;
@@ -247,13 +266,14 @@ export function buildRouteFlowGraph(routes: ApiRouteEntry[], groupDepth: number,
       framework: route.framework,
       label,
       routeCount: 0,
+      methodCount: 0,
       methods: new Set<string>(),
       sourceFiles: new Set<string>(),
     };
 
     existing.routeCount += 1;
-    route.methods.forEach(method => {
-      const normalizedMethod = method.toUpperCase();
+    existing.methodCount += methods.length;
+    methods.forEach(normalizedMethod => {
       const groupMethodKey = `${key}|${normalizedMethod}`;
       const currentGroupMethod = groupMethodCounts.get(groupMethodKey) ?? {
         framework: route.framework,
@@ -273,14 +293,15 @@ export function buildRouteFlowGraph(routes: ApiRouteEntry[], groupDepth: number,
 
   const nodes: RouteFlowNode[] = Array.from(frameworkCounts.entries())
     .sort(([left], [right]) => frameworkLabel(left, t).localeCompare(frameworkLabel(right, t)))
-    .map(([framework, routeCount]) => ({
+    .map(([framework, counts]) => ({
       name: frameworkNodeId(framework),
       displayName: frameworkLabel(framework, t),
       kind: 'framework' as const,
       framework,
-      routeCount,
+      routeCount: counts.routes,
+      methodCount: counts.methods,
       category: 0,
-      symbolSize: 42 + Math.min(26, Math.sqrt(routeCount) * 4),
+      symbolSize: 42 + Math.min(26, Math.sqrt(counts.routes) * 4),
     }));
 
   const links: RouteFlowLink[] = [];
@@ -294,6 +315,7 @@ export function buildRouteFlowGraph(routes: ApiRouteEntry[], groupDepth: number,
       kind: 'group',
       framework: entry.framework,
       routeCount: entry.routeCount,
+      methodCount: entry.methodCount,
       methods: Array.from(entry.methods).sort(),
       sourceCount: entry.sourceFiles.size,
       category: 1,
@@ -302,7 +324,7 @@ export function buildRouteFlowGraph(routes: ApiRouteEntry[], groupDepth: number,
     links.push({
       source: frameworkNodeId(entry.framework),
       target: nodeId,
-      value: entry.routeCount,
+      value: entry.methodCount,
     });
   }
 
@@ -331,7 +353,7 @@ export function buildRouteFlowGraph(routes: ApiRouteEntry[], groupDepth: number,
     groupCount: groupEntries.length,
     nodes,
     links,
-    chartHeight: Math.max(620, Math.min(980, 460 + (groupEntries.length * 8))),
+    chartHeight: Math.max(440, Math.min(800, 360 + (groupEntries.length * 8))),
   };
 }
 
@@ -339,6 +361,7 @@ export function buildRouteHierarchy(routes: ApiRouteEntry[], groupDepth: number,
   const frameworkNodes = new Map<ApiRouteEntry['framework'], RouteHierarchyNode>();
   const groupNodes = new Map<string, RouteHierarchyNode>();
   const groupMethods = new Map<string, Set<string>>();
+  const groupSources = new Map<string, Set<string>>();
 
   const root: RouteHierarchyNode = {
     name: 'root',
@@ -378,12 +401,13 @@ export function buildRouteHierarchy(routes: ApiRouteEntry[], groupDepth: number,
       routeCount: 0,
       value: 0,
       methods: [],
-      children: [],
+      sourceCount: 0,
     };
 
     if (!groupNodes.has(groupKey)) {
       groupNodes.set(groupKey, groupNode);
       groupMethods.set(groupKey, new Set<string>());
+      groupSources.set(groupKey, new Set<string>());
       frameworkNode.children?.push(groupNode);
     }
 
@@ -391,28 +415,11 @@ export function buildRouteHierarchy(routes: ApiRouteEntry[], groupDepth: number,
     groupNode.value = groupNode.routeCount;
 
     const methods = groupMethods.get(groupKey)!;
-    route.methods.forEach(method => {
-      const normalizedMethod = method.toUpperCase();
-      methods.add(normalizedMethod);
-
-      const existingMethodNode = groupNode.children?.find(child => child.kind === 'method' && child.method === normalizedMethod);
-      if (existingMethodNode) {
-        existingMethodNode.routeCount += 1;
-        existingMethodNode.value = existingMethodNode.routeCount;
-        return;
-      }
-
-      groupNode.children?.push({
-        name: `${groupNodeId(route.framework, groupLabel)}:${normalizedMethod}`,
-        displayName: methodLabel(normalizedMethod, t),
-        kind: 'method',
-        method: normalizedMethod,
-        routeCount: 1,
-        value: 1,
-      });
-    });
-
+    routeMethods(route).forEach(method => methods.add(method));
     groupNode.methods = Array.from(methods).sort();
+    const sources = groupSources.get(groupKey)!;
+    sources.add(route.sourceFile);
+    groupNode.sourceCount = sources.size;
   }
 
   root.children = (root.children ?? [])
@@ -420,18 +427,14 @@ export function buildRouteHierarchy(routes: ApiRouteEntry[], groupDepth: number,
     .map(frameworkNode => ({
       ...frameworkNode,
       children: (frameworkNode.children ?? [])
-        .sort((left, right) => left.displayName.localeCompare(right.displayName))
-        .map(groupNode => ({
-          ...groupNode,
-          children: (groupNode.children ?? []).sort((left, right) => left.displayName.localeCompare(right.displayName)),
-        })),
+        .sort((left, right) => right.routeCount - left.routeCount || left.displayName.localeCompare(right.displayName)),
     }));
 
   return {
     groupDepth,
     groupCount: groupNodes.size,
     root,
-    chartHeight: Math.max(640, Math.min(1040, 480 + (groupNodes.size * 10))),
+    chartHeight: Math.max(440, Math.min(720, 360 + (groupNodes.size * 10))),
   };
 }
 
@@ -440,7 +443,9 @@ export function buildRouteAnalysisChart(routes: ApiRouteEntry[], groupDepth: num
     framework: ApiRouteEntry['framework'];
     label: string;
     routeCount: number;
+    methodCount: number;
     methodCounts: Map<string, number>;
+    sourceFiles: Set<string>;
   }>();
   const methods = new Set<string>();
 
@@ -451,28 +456,39 @@ export function buildRouteAnalysisChart(routes: ApiRouteEntry[], groupDepth: num
       framework: route.framework,
       label,
       routeCount: 0,
+      methodCount: 0,
       methodCounts: new Map<string, number>(),
+      sourceFiles: new Set<string>(),
     };
 
     entry.routeCount += 1;
-    route.methods.forEach(method => {
-      const normalizedMethod = method.toUpperCase();
+    entry.sourceFiles.add(route.sourceFile);
+    routeMethods(route).forEach(normalizedMethod => {
       methods.add(normalizedMethod);
+      entry.methodCount += 1;
       entry.methodCounts.set(normalizedMethod, (entry.methodCounts.get(normalizedMethod) ?? 0) + 1);
     });
 
     groupMap.set(key, entry);
   }
 
-  const methodList = Array.from(methods).sort((left, right) => left.localeCompare(right));
+  const methodList = Array.from(methods).sort((left, right) => {
+    const rank = (method: string) => {
+      const index = ROUTE_METHOD_ORDER.indexOf(method);
+      return index < 0 ? ROUTE_METHOD_ORDER.length : index;
+    };
+    return rank(left) - rank(right) || left.localeCompare(right);
+  });
   const groups = Array.from(groupMap.entries())
-    .sort((left, right) => right[1].routeCount - left[1].routeCount || left[1].framework.localeCompare(right[1].framework) || left[1].label.localeCompare(right[1].label))
+    .sort((left, right) => right[1].methodCount - left[1].methodCount || left[1].framework.localeCompare(right[1].framework) || left[1].label.localeCompare(right[1].label))
     .map(([key, entry]) => ({
       key,
       framework: entry.framework,
       label: entry.label,
       displayName: `${frameworkLabel(entry.framework, t)} · ${entry.label}`,
       routeCount: entry.routeCount,
+      methodCount: entry.methodCount,
+      sourceCount: entry.sourceFiles.size,
       methodCounts: methodList.reduce<Record<string, number>>((acc, method) => {
         acc[method] = entry.methodCounts.get(method) ?? 0;
         return acc;
@@ -490,6 +506,6 @@ export function buildRouteAnalysisChart(routes: ApiRouteEntry[], groupDepth: num
     groups,
     methods: methodList,
     maxValue,
-    chartHeight: Math.max(620, Math.min(1180, 280 + (groups.length * 30))),
+    chartHeight: Math.max(360, 120 + (Math.min(groups.length, VISIBLE_ANALYSIS_GROUPS) * 28)),
   };
 }

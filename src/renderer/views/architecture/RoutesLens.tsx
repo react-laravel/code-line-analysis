@@ -38,6 +38,7 @@ import {
   frameworkLabel,
   LARAVEL_GROUP_BEST_EFFORT_WARNING,
   maxRoutePathDepth,
+  matchesRouteChartGroup,
   RELAYOUTABLE_VARIANTS,
   ROUTE_CHART_VARIANTS,
   routeChartVariantLabel,
@@ -45,13 +46,14 @@ import {
   type DisplayMode,
   type RouteChartVariant,
   type RouteFlowNode,
+  type RouteChartGroupFilter,
 } from './routes-model';
 
 /**
  * The Routes lens (was `/api-routes`, 1375 lines). The page's own chrome —
- * a search box, a framework `Select`, a List/Graph strip, an 8-button chart
+ * a search box, a framework `Select`, a List/Graph strip, a chart
  * strip and a depth strip — collapses into the Architecture toolbar: the
- * strip of eight chart variants is the "View as ▾" menu, depth lives in the
+ * chart variants live in the "View as ▾" menu, depth lives in the
  * filters row, and the four metric tiles fold into the toolbar subtitle under
  * 1200px (blueprint §2.4).
  */
@@ -62,8 +64,9 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
 
   const [frameworkFilter, setFrameworkFilter] = useState<'all' | ApiRouteEntry['framework']>('all');
   const [displayMode, setDisplayMode] = useState<DisplayMode>('list');
-  const [chartVariant, setChartVariant] = useState<RouteChartVariant>('force');
+  const [chartVariant, setChartVariant] = useState<RouteChartVariant>('stackedBar');
   const [visibleDepth, setVisibleDepth] = useState<number | null>(null);
+  const [chartGroupFilter, setChartGroupFilter] = useState<RouteChartGroupFilter | null>(null);
 
   const folderId = folder.id;
   const loadOverview = useCallback(() => window.api.stats.apiRoutes(folderId), [folderId]);
@@ -79,7 +82,12 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
 
   useEffect(() => {
     setVisibleDepth(null);
+    setChartGroupFilter(null);
   }, [folderId]);
+
+  useEffect(() => {
+    if (chartGroupFilter && query !== chartGroupFilter.prefix) setChartGroupFilter(null);
+  }, [chartGroupFilter, query]);
 
   useEffect(() => {
     if (!overview) return;
@@ -92,11 +100,12 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
     const normalizedSearch = query.trim().toLowerCase();
     return (overview?.routes ?? []).filter(route => {
       if (frameworkFilter !== 'all' && route.framework !== frameworkFilter) return false;
+      if (chartGroupFilter && query === chartGroupFilter.prefix && !matchesRouteChartGroup(route, chartGroupFilter)) return false;
       if (!normalizedSearch) return true;
       return [route.path, route.handler, route.sourceFile, route.routeName ?? '', route.methods.join(' ')]
         .some(value => value.toLowerCase().includes(normalizedSearch));
     });
-  }, [frameworkFilter, overview?.routes, query]);
+  }, [chartGroupFilter, frameworkFilter, overview?.routes, query]);
 
   const routeDepthMax = useMemo(() => maxRoutePathDepth(filteredRoutes), [filteredRoutes]);
   const depthOptions = useMemo(
@@ -114,14 +123,11 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
   const routeAnalysis = useMemo(() => buildRouteAnalysisChart(filteredRoutes, graphGroupDepth, t), [filteredRoutes, graphGroupDepth, t]);
 
   const chartHeight = useMemo(() => {
-    if (chartVariant === 'heatmap' || chartVariant === 'stackedBar') return Math.max(620, Math.min(1120, routeAnalysis.chartHeight));
-    if (chartVariant === 'sankey') return Math.max(580, Math.min(980, 380 + (routeFlowGraph.nodes.length * 16)));
-    if (chartVariant === 'tree') return Math.max(720, Math.min(1080, routeHierarchy.chartHeight));
-    if (chartVariant === 'sunburst') return Math.max(620, Math.min(920, routeHierarchy.chartHeight - 40));
-    if (chartVariant === 'treemap') return Math.max(620, Math.min(920, routeHierarchy.chartHeight - 40));
-    if (chartVariant === 'circular') return Math.max(620, Math.min(920, routeFlowGraph.chartHeight - 20));
+    if (chartVariant === 'heatmap' || chartVariant === 'stackedBar') return routeAnalysis.chartHeight;
+    if (chartVariant === 'sankey') return Math.max(440, Math.min(980, 280 + (routeFlowGraph.groupCount * 24)));
+    if (chartVariant === 'treemap') return routeHierarchy.chartHeight;
     return routeFlowGraph.chartHeight;
-  }, [chartVariant, routeAnalysis.chartHeight, routeFlowGraph.chartHeight, routeFlowGraph.nodes.length, routeHierarchy.chartHeight]);
+  }, [chartVariant, routeAnalysis.chartHeight, routeFlowGraph.chartHeight, routeFlowGraph.groupCount, routeHierarchy.chartHeight]);
 
   useEffect(() => {
     if (visibleDepth == null) return;
@@ -135,34 +141,27 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
   const handleRouteChartClick = useCallback((data: RouteFlowNode | null): void => {
     if (!data) return;
     if (data.kind === 'framework' && data.framework) {
+      setChartGroupFilter(null);
       setFrameworkFilter(data.framework);
       setDisplayMode('list');
       return;
     }
-    if (data.kind === 'group') {
-      // The group's path prefix goes back into the shared search box, exactly
-      // as the page's own `setSearchText(data.displayName)` used to.
+    if (data.kind === 'group' && data.framework) {
+      // Preserve exact group membership; substring search would include
+      // /api/orders-export when the user clicks /api/orders.
+      setChartGroupFilter({ framework: data.framework, prefix: data.displayName, depth: graphGroupDepth });
       setQuery(data.displayName);
-      setFrameworkFilter(data.framework ?? 'all');
+      setFrameworkFilter(data.framework);
       setDisplayMode('list');
     }
-  }, [setQuery]);
+  }, [graphGroupDepth, setQuery]);
 
   const chartEvents = useMemo<ChartEvents>(() => ({
-    mouseover: (params, chart) => {
-      if (chartVariant !== 'force' && chartVariant !== 'circular') return;
-      const payload = typeof params === 'object' && params && 'dataType' in params
-        ? params as { dataType?: string; dataIndex?: number }
-        : null;
-      if (!payload || payload.dataType !== 'edge') return;
-      chart.dispatchAction({ type: 'downplay', seriesIndex: 0, dataType: 'edge', dataIndex: payload.dataIndex });
-      chart.dispatchAction({ type: 'hideTip' });
-    },
     click: params => {
       const data = typeof params === 'object' && params && 'data' in params ? params.data as RouteFlowNode : null;
       handleRouteChartClick(data);
     },
-  }), [chartVariant, handleRouteChartClick]);
+  }), [handleRouteChartClick]);
 
   const activeFilterCount = [
     query.trim() !== '',
@@ -174,13 +173,17 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
     setQuery('');
     setFrameworkFilter('all');
     setVisibleDepth(null);
+    setChartGroupFilter(null);
   }, [setQuery]);
 
   const graphData = useCallback(
-    () => (displayMode === 'graph'
-      ? { nodes: routeFlowGraph.nodes, links: routeFlowGraph.links }
-      : { routes: filteredRoutes }),
-    [displayMode, filteredRoutes, routeFlowGraph],
+    () => {
+      if (displayMode === 'list') return { routes: filteredRoutes };
+      if (chartVariant === 'heatmap' || chartVariant === 'stackedBar') return routeAnalysis;
+      if (chartVariant === 'treemap') return routeHierarchy.root;
+      return { nodes: routeFlowGraph.nodes, links: routeFlowGraph.links };
+    },
+    [chartVariant, displayMode, filteredRoutes, routeAnalysis, routeFlowGraph, routeHierarchy.root],
   );
 
   const menu = useGraphMenu({
@@ -233,6 +236,7 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
     <>
       <ToggleGroup
         aria-label={t('apiRoutes.viewMode')}
+        className="shrink-0 flex-nowrap"
         value={displayMode}
         onValueChange={setDisplayMode}
         options={[
@@ -262,7 +266,10 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
         wrapperClassName="w-52"
         aria-label={t('apiRoutes.framework')}
         value={frameworkFilter}
-        onChange={event => setFrameworkFilter(event.target.value as 'all' | ApiRouteEntry['framework'])}
+        onChange={event => {
+          setChartGroupFilter(null);
+          setFrameworkFilter(event.target.value as 'all' | ApiRouteEntry['framework']);
+        }}
         options={[
           { value: 'all', label: t('apiRoutes.allFrameworks') },
           ...(overview?.frameworks ?? []).map(framework => ({
@@ -285,7 +292,7 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
   );
 
   const content = (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 grid-cols-1 gap-4">
       {loading ? (
         <div className="flex flex-1 items-center justify-center py-10">
           <Spinner size="md" label={t('apiRoutes.loading')} />
@@ -362,7 +369,7 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
     actions,
     filters,
     overflow: menu.items,
-    // "View as ▾" is a menu of eight renderings; the palette gets all eight by
+    // "View as ▾" and the palette share the same available renderings by
     // name, plus List / Graph itself (blueprint §2.8).
     commands: [
       {

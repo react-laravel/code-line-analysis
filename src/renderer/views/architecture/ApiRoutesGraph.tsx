@@ -1,10 +1,15 @@
 import { useCallback } from 'react';
 import type { EChartsOption } from 'echarts';
-import { Chart, Panel, type ChartTokens } from '../../components/ui';
+import { color } from 'echarts/core';
+import { Chart, type ChartTokens } from '../../components/ui/chart';
+import { Panel } from '../../components/ui/panel';
 import { escapeHtml } from '../../utils/escapeHtml';
 import type { ChartEvents } from './lens';
 import {
   methodLabel,
+  routeChartVariantLabel,
+  ROUTE_METHOD_ORDER,
+  VISIBLE_ANALYSIS_GROUPS,
   type RouteAnalysisChart,
   type RouteChartVariant,
   type RouteFlowGraph,
@@ -16,8 +21,7 @@ import {
 } from './routes-model';
 
 /**
- * Graph mode of the Routes lens — the eight variants that used to occupy a
- * visible strip of eight buttons and are now the toolbar's "View as ▾" menu.
+ * Route comparisons and relationships in the toolbar's "View as ▾" menu.
  *
  * Every colour comes from `ChartTokens`; the file's old `FRAMEWORK_COLORS` /
  * `METHOD_COLORS` / `CHART_TEXT` / `CHART_MUTED` / `CHART_BORDER` /
@@ -25,14 +29,14 @@ import {
  * follow the theme instead of being re-skinned by a string-substitution pass.
  *
  * Encoding (DESIGN-SYSTEM §1.6):
- * - force / circular / sankey are all-pairs forms, so they are capped at
+ * - force / sankey use categorical slots by node kind, capped at
  *   categorical slots 1–3 — one per node kind (framework · path prefix ·
  *   method), which is exactly the graph's own category model.
- * - tree / sunburst / treemap encode *depth*, an ordered variable, so they use
+ * - treemap encodes *depth*, an ordered variable, so it uses
  *   the ordinal ramp.
  * - heatmap is a continuous magnitude: the sequential ramp via `visualMap`.
  * - stacked bar is the one categorical-by-series form; its methods take the
- *   eight slots in sorted order and anything past slot 8 falls back to the
+ *   fixed method slots and anything past slot 8 falls back to the
  *   muted ink so nothing is ever cycled.
  */
 
@@ -58,8 +62,25 @@ function tooltipChrome(tokens: ChartTokens) {
   };
 }
 
-function methodSlot(index: number, tokens: ChartTokens): string {
-  return tokens.categorical[index] ?? tokens.inkMuted;
+function methodSlot(method: string, tokens: ChartTokens): string {
+  return tokens.categorical[ROUTE_METHOD_ORDER.indexOf(method)] ?? tokens.inkMuted;
+}
+
+function markLabelColor(background: string, tokens: ChartTokens): string {
+  const luminance = (value: string): number => {
+    const rgb = color.parse(value) ?? [0, 0, 0];
+    const linear = rgb.slice(0, 3).map(channel => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  };
+  const fill = luminance(background);
+  const contrast = (text: string): number => {
+    const ink = luminance(text);
+    return (Math.max(fill, ink) + 0.05) / (Math.min(fill, ink) + 0.05);
+  };
+  return contrast(tokens.surface) > contrast(tokens.ink) ? tokens.surface : tokens.ink;
 }
 
 function nodeTooltip(data: RouteFlowNode, ctx: RouteChartContext): string {
@@ -69,26 +90,30 @@ function nodeTooltip(data: RouteFlowNode, ctx: RouteChartContext): string {
     `${t('apiRoutes.routes')}: ${data.routeCount.toLocaleString(locale)}`,
   ];
 
+  if (data.methodCount != null && data.methodCount !== data.routeCount) {
+    lines.push(`${t('apiRoutes.methodMatches')}: ${data.methodCount.toLocaleString(locale)}`);
+  }
+
   if (data.kind === 'group') {
     lines.push(`${t('apiRoutes.depth')}: ${ctx.flow.groupDepth.toLocaleString(locale)}`);
     lines.push(`${t('common.files')}: ${Number(data.sourceCount ?? 0).toLocaleString(locale)}`);
     if (data.methods && data.methods.length > 0) {
-      lines.push(`${t('apiRoutes.methods')}: ${data.methods.map(method => methodLabel(method, t)).join(' / ')}`);
+      lines.push(`${t('apiRoutes.methods')}: ${data.methods.map(method => escapeHtml(methodLabel(method, t))).join(' / ')}`);
     }
   }
 
-  if (data.kind === 'method' && data.method) lines.push(`${t('apiRoutes.methods')}: ${methodLabel(data.method, t)}`);
+  if (data.kind === 'method' && data.method) lines.push(`${t('apiRoutes.methods')}: ${escapeHtml(methodLabel(data.method, t))}`);
 
   return lines.join('<br/>');
 }
 
-/** Shared formatter for every node/edge form (graph, sankey, tree, sunburst, treemap). */
+/** Shared formatter for graph, sankey and treemap nodes. */
 function structureFormatter(ctx: RouteChartContext) {
   return (params: unknown): string => {
     if (typeof params !== 'object' || !params) return '';
     const payload = params as { dataType?: string; value?: number; data?: RouteFlowNode };
     if (payload.dataType === 'edge') {
-      return `${ctx.t('apiRoutes.routes')}: ${Number(payload.value ?? 0).toLocaleString(ctx.locale)}`;
+      return `${ctx.t('apiRoutes.methodMatches')}: ${Number(payload.value ?? 0).toLocaleString(ctx.locale)}`;
     }
     const data = payload.data;
     if (!data || typeof data.displayName !== 'string') return '';
@@ -105,7 +130,7 @@ function decorateFlowNode(node: RouteFlowNode, tokens: ChartTokens) {
       borderWidth: node.kind === 'framework' ? 2 : 1.5,
     },
     label: {
-      show: node.kind !== 'group' || node.routeCount >= 2,
+      show: true,
       color: tokens.ink,
       fontSize: node.kind === 'framework' ? 13 : 11,
       fontWeight: node.kind === 'framework' ? 600 : 400,
@@ -125,22 +150,23 @@ type DecoratedHierarchyNode = Omit<RouteHierarchyNode, 'children'> & {
   children?: DecoratedHierarchyNode[];
 };
 
-function decorateHierarchyNode(node: RouteHierarchyNode, tokens: ChartTokens): DecoratedHierarchyNode {
+function decorateHierarchyNode(node: RouteHierarchyNode, tokens: ChartTokens, locale: string): DecoratedHierarchyNode {
   const depth = KIND_DEPTH[node.kind];
+  const fill = tokens.ordinal[Math.min(depth, tokens.ordinal.length - 1)];
   return {
     ...node,
     itemStyle: {
-      color: tokens.ordinal[Math.min(depth, tokens.ordinal.length - 1)],
+      color: fill,
       borderColor: tokens.surface,
       borderWidth: 2,
     },
     label: {
-      color: tokens.ink,
+      color: markLabelColor(fill, tokens),
       fontSize: node.kind === 'framework' ? 13 : 11,
       fontWeight: node.kind === 'framework' ? 600 : 400,
-      formatter: node.displayName,
+      formatter: `${node.displayName}\n${node.routeCount.toLocaleString(locale)}`,
     },
-    children: node.children?.map(child => decorateHierarchyNode(child, tokens)),
+    children: node.children?.map(child => decorateHierarchyNode(child, tokens, locale)),
   };
 }
 
@@ -152,6 +178,20 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
     animationDurationUpdate: 320,
     textStyle: { color: tokens.inkMuted },
   } as const;
+  const scrollRows = analysis.groups.length > VISIBLE_ANALYSIS_GROUPS;
+  const rowZoom = (top: number, bottom: number): EChartsOption['dataZoom'] => scrollRows ? [
+    {
+      type: 'slider', yAxisIndex: 0, filterMode: 'filter',
+      startValue: 0, endValue: VISIBLE_ANALYSIS_GROUPS - 1,
+      right: 4, top, bottom, width: 12,
+      zoomLock: true, brushSelect: false, showDetail: false,
+    },
+    {
+      type: 'inside', yAxisIndex: 0, filterMode: 'filter',
+      startValue: 0, endValue: VISIBLE_ANALYSIS_GROUPS - 1,
+      zoomLock: true, zoomOnMouseWheel: false, moveOnMouseWheel: true,
+    },
+  ] : [];
 
   if (variant === 'heatmap') {
     return {
@@ -164,14 +204,16 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
             value: [number, number, number];
             displayName: string;
             routeCount: number;
+            sourceCount: number;
             method: string;
           } : null;
           if (!data) return '';
           return [
             escapeHtml(data.displayName),
-            `${t('apiRoutes.methods')}: ${methodLabel(data.method, t)}`,
-            `${t('apiRoutes.routes')}: ${Number(data.value?.[2] ?? 0).toLocaleString(locale)}`,
-            `${t('common.files')}: ${data.routeCount.toLocaleString(locale)}`,
+            `${t('apiRoutes.methods')}: ${escapeHtml(methodLabel(data.method, t))}`,
+            `${t('apiRoutes.methodMatches')}: ${Number(data.value?.[2] ?? 0).toLocaleString(locale)}`,
+            `${t('apiRoutes.routes')}: ${data.routeCount.toLocaleString(locale)}`,
+            `${t('common.files')}: ${data.sourceCount.toLocaleString(locale)}`,
           ].join('<br/>');
         },
       },
@@ -185,7 +227,8 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
         textStyle: { color: tokens.inkMuted },
         inRange: { color: tokens.sequential },
       },
-      grid: { top: 18, left: 24, right: 18, bottom: 84, containLabel: true },
+      dataZoom: rowZoom(18, 84),
+      grid: { top: 18, left: 16, right: scrollRows ? 36 : 18, bottom: 84, containLabel: true },
       xAxis: {
         type: 'category',
         data: analysis.methods.map(method => methodLabel(method, t)),
@@ -197,7 +240,7 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
         type: 'category',
         data: analysis.groups.map(group => group.displayName),
         splitArea: { show: true },
-        axisLabel: { color: tokens.inkMuted, width: 220, overflow: 'truncate' },
+        axisLabel: { color: tokens.inkMuted, width: 180, overflow: 'truncate', interval: 0 },
         axisLine: { lineStyle: { color: tokens.axis } },
         inverse: true,
       },
@@ -208,11 +251,17 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
           data: analysis.groups.flatMap((group, groupIndex) => analysis.methods.map((method, methodIndex) => ({
             value: [methodIndex, groupIndex, group.methodCounts[method] ?? 0] as [number, number, number],
             displayName: group.label,
+            kind: 'group',
+            framework: group.framework,
             routeCount: group.routeCount,
+            sourceCount: group.sourceCount,
             method,
+            label: {
+              color: markLabelColor(color.lerp((group.methodCounts[method] ?? 0) / Math.max(1, analysis.maxValue), tokens.sequential), tokens),
+            },
           }))),
           label: {
-            show: analysis.groups.length <= 14,
+            show: true,
             color: tokens.ink,
             formatter: params => {
               const value = typeof params === 'object' && params && 'data' in params
@@ -238,44 +287,52 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
             value: number;
             displayName: string;
             routeCount: number;
+            sourceCount: number;
             method: string;
           } : null;
           if (!data) return '';
           return [
             escapeHtml(data.displayName),
-            `${t('apiRoutes.methods')}: ${methodLabel(data.method, t)}`,
-            `${t('apiRoutes.routes')}: ${Number(data.value ?? 0).toLocaleString(locale)}`,
-            `${t('common.files')}: ${data.routeCount.toLocaleString(locale)}`,
+            `${t('apiRoutes.methods')}: ${escapeHtml(methodLabel(data.method, t))}`,
+            `${t('apiRoutes.methodMatches')}: ${Number(data.value ?? 0).toLocaleString(locale)}`,
+            `${t('apiRoutes.routes')}: ${data.routeCount.toLocaleString(locale)}`,
+            `${t('common.files')}: ${data.sourceCount.toLocaleString(locale)}`,
           ].join('<br/>');
         },
       },
-      legend: { top: 0, textStyle: { color: tokens.inkMuted } },
-      grid: { top: 56, left: 24, right: 18, bottom: 20, containLabel: true },
+      legend: { type: 'scroll', top: 0, textStyle: { color: tokens.inkMuted } },
+      dataZoom: rowZoom(56, 24),
+      grid: { top: 56, left: 16, right: scrollRows ? 36 : 18, bottom: 24, containLabel: true },
       xAxis: {
         type: 'value',
+        minInterval: 1,
         axisLabel: { color: tokens.inkMuted },
         splitLine: { lineStyle: { color: tokens.grid } },
       },
       yAxis: {
         type: 'category',
         data: analysis.groups.map(group => group.displayName),
-        axisLabel: { color: tokens.inkMuted, width: 220, overflow: 'truncate' },
+        axisLabel: { color: tokens.inkMuted, width: 180, overflow: 'truncate', interval: 0 },
         axisTick: { show: false },
         axisLine: { lineStyle: { color: tokens.axis } },
         inverse: true,
       },
-      series: analysis.methods.map((method, index) => ({
+      series: analysis.methods.map(method => ({
         id: `routes-bar-${method}-${seed}`,
         type: 'bar' as const,
         name: methodLabel(method, t),
         stack: 'routes',
+        barMaxWidth: 24,
         // 2px surface gap between stacked segments (DESIGN-SYSTEM §1.6).
-        itemStyle: { color: methodSlot(index, tokens), borderColor: tokens.surface, borderWidth: 1 },
+        itemStyle: { color: methodSlot(method, tokens), borderColor: tokens.surface, borderWidth: 1 },
         emphasis: { focus: 'series' as const },
         data: analysis.groups.map(group => ({
           value: group.methodCounts[method] ?? 0,
           displayName: group.label,
+          kind: 'group',
+          framework: group.framework,
           routeCount: group.routeCount,
+          sourceCount: group.sourceCount,
           method,
         })),
       })),
@@ -292,12 +349,16 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
           type: 'sankey',
           data: flow.nodes.map(node => ({
             ...decorateFlowNode(node, tokens),
-            value: node.routeCount,
+            value: node.methodCount ?? node.routeCount,
             depth: KIND_DEPTH[node.kind] - 1,
           })),
           links: flow.links,
           nodeWidth: 16,
           nodeGap: 16,
+          left: 16,
+          right: 100,
+          top: 16,
+          bottom: 16,
           draggable: false,
           emphasis: { focus: 'adjacency' },
           levels: [0, 1, 2].map(depth => ({
@@ -319,69 +380,6 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
     };
   }
 
-  if (variant === 'tree') {
-    return {
-      ...base,
-      tooltip: { trigger: 'item', ...tooltipChrome(tokens), formatter: structureFormatter(ctx) },
-      series: [
-        {
-          id: `routes-tree-${seed}`,
-          type: 'tree',
-          data: [decorateHierarchyNode(hierarchy.root, tokens)],
-          layout: 'radial',
-          top: '8%',
-          left: '8%',
-          bottom: '8%',
-          right: '8%',
-          symbol: 'circle',
-          symbolSize: 10,
-          roam: true,
-          expandAndCollapse: true,
-          initialTreeDepth: 2,
-          animationDurationUpdate: 550,
-          lineStyle: { color: tokens.grid, width: 1.2, curveness: 0.28 },
-          itemStyle: { borderWidth: 1.5 },
-          label: {
-            color: tokens.ink,
-            fontSize: 12,
-            formatter: params => {
-              const data = typeof params === 'object' && params && 'data' in params ? params.data as RouteHierarchyNode : null;
-              return data?.displayName ?? '';
-            },
-          },
-          leaves: { label: { color: tokens.ink, fontSize: 11 } },
-          emphasis: { focus: 'descendant' },
-        },
-      ],
-    };
-  }
-
-  if (variant === 'sunburst') {
-    return {
-      ...base,
-      tooltip: { trigger: 'item', ...tooltipChrome(tokens), formatter: structureFormatter(ctx) },
-      series: [
-        {
-          id: `routes-sunburst-${seed}`,
-          type: 'sunburst',
-          data: (hierarchy.root.children ?? []).map(child => decorateHierarchyNode(child, tokens)),
-          radius: ['12%', '92%'],
-          sort: undefined,
-          nodeClick: false,
-          emphasis: { focus: 'ancestor' },
-          itemStyle: { borderColor: tokens.surface, borderWidth: 2 },
-          label: { color: tokens.ink },
-          levels: [
-            {},
-            { r0: '12%', r: '32%', label: { rotate: 'tangential' } },
-            { r0: '34%', r: '62%', label: { rotate: 'tangential' } },
-            { r0: '64%', r: '92%', label: { rotate: 'radial' } },
-          ],
-        },
-      ],
-    };
-  }
-
   if (variant === 'treemap') {
     return {
       ...base,
@@ -390,7 +388,11 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
         {
           id: `routes-treemap-${seed}`,
           type: 'treemap',
-          data: (hierarchy.root.children ?? []).map(child => decorateHierarchyNode(child, tokens)),
+          left: 0,
+          top: 0,
+          width: '100%',
+          height: '100%',
+          data: (hierarchy.root.children ?? []).map(child => decorateHierarchyNode(child, tokens, locale)),
           roam: false,
           nodeClick: false,
           breadcrumb: { show: false },
@@ -409,7 +411,7 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
     };
   }
 
-  // force + circular — the all-pairs form, capped at categorical slots 1–3.
+  // Force graph uses categorical slots 1–3 for the three node kinds.
   return {
     ...base,
     tooltip: { trigger: 'item', ...tooltipChrome(tokens), formatter: structureFormatter(ctx) },
@@ -424,8 +426,7 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
       {
         id: `routes-graph-${seed}`,
         type: 'graph',
-        layout: variant === 'circular' ? 'circular' : 'force',
-        circular: variant === 'circular' ? { rotateLabel: false } : undefined,
+        layout: 'force',
         data: flow.nodes.map(node => decorateFlowNode(node, tokens)),
         links: flow.links,
         categories: [
@@ -434,16 +435,17 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
           { name: t('apiRoutes.methods') },
         ],
         roam: true,
-        draggable: variant !== 'circular',
+        draggable: true,
         edgeSymbol: ['none', 'arrow'],
         edgeSymbolSize: [0, 8],
-        force: variant === 'force' ? {
+        force: {
           repulsion: 260,
           gravity: 0.08,
           edgeLength: [80, 180],
           friction: 0.55,
-        } : undefined,
+        },
         emphasis: {
+          focus: 'adjacency',
           itemStyle: { borderColor: tokens.markRing, borderWidth: 2 },
           lineStyle: { width: 1.2, opacity: 0.32 },
         },
@@ -451,7 +453,7 @@ export function routeChartOption(tokens: ChartTokens, ctx: RouteChartContext): E
           color: 'source',
           opacity: 0.32,
           width: 1.2,
-          curveness: variant === 'circular' ? 0.18 : 0.08,
+          curveness: 0.08,
         },
         labelLayout: { hideOverlap: true },
       },
@@ -472,9 +474,15 @@ export default function ApiRoutesGraph({
 
   return (
     <Panel className="overflow-hidden">
+      {ctx.variant !== 'treemap' ? (
+        <p className="mb-2 text-xs text-fg-muted">{ctx.t('apiRoutes.methodCountHint')}</p>
+      ) : null}
+      {(ctx.variant === 'heatmap' || ctx.variant === 'stackedBar') && ctx.analysis.groupCount > VISIBLE_ANALYSIS_GROUPS ? (
+        <p className="mb-2 text-xs text-fg-muted">{ctx.t('apiRoutes.scrollGroupsHint', { count: ctx.analysis.groupCount })}</p>
+      ) : null}
       <Chart
         option={option}
-        ariaLabel={ctx.t('apiRoutes.title')}
+        ariaLabel={`${ctx.t('apiRoutes.title')} · ${routeChartVariantLabel(ctx.variant, ctx.t)}`}
         height={height}
         onEvents={onEvents}
       />

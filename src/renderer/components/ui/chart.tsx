@@ -8,11 +8,9 @@ import {
   HeatmapChart,
   PieChart,
   SankeyChart,
-  SunburstChart,
-  TreeChart,
   TreemapChart,
 } from 'echarts/charts';
-import { GridComponent, LegendComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
+import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { cn } from '../../lib/utils';
 import { Spinner } from './spinner';
@@ -23,9 +21,8 @@ echarts.use([
   HeatmapChart,
   PieChart,
   SankeyChart,
-  SunburstChart,
   TreemapChart,
-  TreeChart,
+  DataZoomComponent,
   GridComponent,
   LegendComponent,
   TooltipComponent,

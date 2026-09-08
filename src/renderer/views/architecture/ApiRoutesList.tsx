@@ -13,7 +13,7 @@ import { frameworkLabel } from './routes-model';
 
 /**
  * List mode of the Routes lens. Split out of the 1375-line `ApiRoutesView`
- * (ADOPTION §1.4); `ApiRoutesGraph.tsx` owns the eight chart variants.
+ * (ADOPTION §1.4); `ApiRoutesGraph.tsx` owns the chart variants.
  *
  * The bespoke `buildColumnPlan` summary-column mechanism is the app-local
  * column factory the blueprint's risk 1 recommends: uniform columns collapse
