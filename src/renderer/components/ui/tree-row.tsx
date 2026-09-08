@@ -9,10 +9,14 @@ import type { MenuItem, Tone } from './_internal/types';
 
 export interface TreeRowProps {
   depth: number;
+  /** Visual indentation can differ from the accessible tree depth. */
+  indentDepth?: number;
   label: React.ReactNode;
   icon?: LucideIcon;
   iconTone?: Tone;
   expandable?: boolean;
+  /** Omit the toggle and its spacer for a permanently expanded root. */
+  hideToggle?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
   selected?: boolean;
@@ -55,10 +59,12 @@ const ICON_TONE: Record<Tone, string> = {
  */
 export function TreeRow({
   depth,
+  indentDepth = depth,
   label,
   icon: Icon,
   iconTone = 'neutral',
   expandable,
+  hideToggle = false,
   expanded,
   onToggle,
   selected,
@@ -89,7 +95,7 @@ export function TreeRow({
       tabIndex={tabIndex ?? (selected ? 0 : -1)}
       data-focus-inset
       title={title}
-      style={{ paddingLeft: depth * 12 + 8 }}
+      style={{ paddingLeft: indentDepth * 12 + 8 }}
       onClick={onActivate}
       onContextMenu={event => {
         if (!onContextMenu) return;
@@ -97,10 +103,10 @@ export function TreeRow({
         setMenu({ x: event.clientX, y: event.clientY });
       }}
       onKeyDown={event => {
-        if (event.key === 'ArrowRight' && expandable && !expanded) {
+        if (event.key === 'ArrowRight' && expandable && !hideToggle && !expanded) {
           event.preventDefault();
           onToggle?.();
-        } else if (event.key === 'ArrowLeft' && expandable && expanded) {
+        } else if (event.key === 'ArrowLeft' && expandable && !hideToggle && expanded) {
           event.preventDefault();
           onToggle?.();
         } else if (event.key === 'Enter' || event.key === ' ') {
@@ -112,11 +118,11 @@ export function TreeRow({
         'group relative flex h-row-tree cursor-default items-center gap-1.5 pr-1 text-sm',
         'transition-colors duration-[120ms] hover:bg-hover',
         selected && 'bg-selected before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent',
-        guides && depth > 0 && 'border-l border-border/0',
+        guides && indentDepth > 0 && 'border-l border-border/0',
         className,
       )}
     >
-      {expandable ? (
+      {hideToggle ? null : expandable ? (
         <button
           type="button"
           tabIndex={-1}

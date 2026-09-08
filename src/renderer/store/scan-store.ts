@@ -32,6 +32,7 @@ export interface ScanState {
 const LAST_SCAN_KEY = 'last-scan-at';
 
 let cancelRequested = false;
+let pendingRunFolderId: number | null = null;
 let startedAt = 0;
 let doneTimer: number | null = null;
 
@@ -54,6 +55,28 @@ export const useScanStore = create<ScanState>((set, get) => ({
 
   listen() {
     return window.api.scan.onProgress(progress => {
+      // Watchers and rule changes enqueue scans without calling run(), so
+      // there is no command promise to clear their busy state. A manual scan
+      // still settles through its promise, which carries success/error details.
+      if (progress.phase === 'done' && pendingRunFolderId !== progress.folderId) {
+        clearDoneTimer();
+        const cancelled = cancelRequested;
+        cancelRequested = false;
+        set(state => ({
+          status: pendingRunFolderId != null ? 'queued' : cancelled ? 'cancelled' : 'idle',
+          folderId: pendingRunFolderId ?? progress.folderId,
+          progress: null,
+          error: null,
+          durationMs: null,
+          filesScanned: null,
+          outcomeToken: state.outcomeToken + (cancelled && pendingRunFolderId == null ? 1 : 0),
+        }));
+        // The backend also emits `done` on failure. Refresh cached results,
+        // but do not record a successful scan without a successful response.
+        useAppStore.getState().bumpRevision();
+        return;
+      }
+
       // Partial results stream: keep the last payload so the toolbar line and
       // the status bar can render `n/m` plus the current file.
       set(state => ({
@@ -65,8 +88,9 @@ export const useScanStore = create<ScanState>((set, get) => ({
   },
 
   async run(folderId, opts) {
-    if (get().status === 'running' || get().status === 'queued') return;
+    if (pendingRunFolderId != null || get().status === 'running' || get().status === 'queued') return;
     clearDoneTimer();
+    pendingRunFolderId = folderId;
     cancelRequested = false;
     startedAt = Date.now();
     set({ status: 'queued', folderId, progress: null, error: null, durationMs: null, filesScanned: null });
@@ -110,6 +134,9 @@ export const useScanStore = create<ScanState>((set, get) => ({
         error: error instanceof Error ? error.message : String(error ?? ''),
         outcomeToken: state.outcomeToken + 1,
       }));
+    } finally {
+      pendingRunFolderId = null;
+      cancelRequested = false;
     }
   },
 

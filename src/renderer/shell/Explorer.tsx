@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EllipsisVertical, File, Folder, FolderOpen, FolderTree } from 'lucide-react';
+import { EllipsisVertical, File, Folder, FolderOpen, FolderTree, FoldVertical, UnfoldVertical } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { MenuItem } from '../components/ui/_internal/types';
 import { Button } from '../components/ui/button';
@@ -30,8 +30,8 @@ const LEVEL_KEYS = ['tree.levelOne', 'tree.levelTwo', 'tree.levelThree'] as cons
  * current-path line is driven by that viewport ref instead of the old
  * `treePage.closest('.content')` reach-out (`TreeView.tsx:218`).
  *
- * Everything the page had is preserved: the expand-all and level 1·2·3 buttons
- * moved into the header `⋯`, and the native per-node context menu still calls
+ * Expand/collapse actions sit directly in the header, with level 1·2·3 in `⋯`.
+ * The native per-node context menu still calls
  * `system.showTreeNodeContextMenu` with the same five labels.
  */
 export default function Explorer({ collapsed }: { collapsed: boolean }) {
@@ -107,9 +107,6 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
     [tree],
   );
 
-  const allDirectoriesExpanded = directories.allPaths.length > 0
-    && directories.allPaths.every(path => expandedPathSet.has(path));
-
   const rootName = folder?.name || folder?.rootPath || '/';
 
   const breadcrumbs = useMemo(() => {
@@ -160,7 +157,9 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
   const activate = useCallback((row: FlatTreeRow) => {
     if (folderId == null) return;
     if (row.node.isDir) {
-      toggleTreePath(folderId, row.node.path, !expandedPathSet.has(row.node.path));
+      if (row.node.path !== '') {
+        toggleTreePath(folderId, row.node.path, !expandedPathSet.has(row.node.path));
+      }
       return;
     }
     // Opening a file is a tab now (blueprint §3.4) — the shell's tab effect
@@ -266,23 +265,14 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
   const overflow: MenuItem[] = useMemo(() => {
     if (folderId == null) return [];
     const levels = [1, 2, 3].filter(level => directories.maxDepth >= level);
-    return [
-      {
-        id: 'expand-all',
-        label: allDirectoriesExpanded ? t('tree.collapseAll') : t('tree.expandAll'),
-        disabled: directories.allPaths.length === 0,
-        onSelect: () => replaceTreePaths(folderId, allDirectoriesExpanded ? [] : directories.allPaths),
+    return levels.map<MenuItem>(level => ({
+      id: `level-${level}`,
+      label: t(LEVEL_KEYS[level - 1]),
+      onSelect: () => {
+        if (tree) replaceTreePaths(folderId, pathsForLevel(tree, level));
       },
-      ...(levels.length ? [{ kind: 'separator' as const, id: 'sep-levels' }] : []),
-      ...levels.map<MenuItem>(level => ({
-        id: `level-${level}`,
-        label: t(LEVEL_KEYS[level - 1]),
-        onSelect: () => {
-          if (tree) replaceTreePaths(folderId, pathsForLevel(tree, level));
-        },
-      })),
-    ];
-  }, [allDirectoriesExpanded, directories.allPaths, directories.maxDepth, folderId, replaceTreePaths, t, tree]);
+    }));
+  }, [directories.maxDepth, folderId, replaceTreePaths, t, tree]);
 
   /* ---------------------------------------------------------------- render */
 
@@ -310,12 +300,32 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
         <h2 className="min-w-0 flex-1 truncate text-2xs font-medium tracking-wide text-fg-subtle uppercase">
           {t('explorer.title')}
         </h2>
-        {overflow.length > 0 ? (
-          <DropdownMenu
-            items={overflow}
-            align="end"
-            trigger={<IconButton icon={EllipsisVertical} label={t('explorer.actions')} size="xs" variant="ghost" />}
-          />
+        {folderId != null ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <IconButton
+              icon={UnfoldVertical}
+              label={t('tree.expandAll')}
+              size="xs"
+              variant="ghost"
+              disabled={directories.allPaths.length === 0}
+              onClick={() => replaceTreePaths(folderId, directories.allPaths)}
+            />
+            <IconButton
+              icon={FoldVertical}
+              label={t('tree.collapseAll')}
+              size="xs"
+              variant="ghost"
+              disabled={directories.allPaths.length === 0}
+              onClick={() => replaceTreePaths(folderId, [])}
+            />
+            {overflow.length > 0 ? (
+              <DropdownMenu
+                items={overflow}
+                align="end"
+                trigger={<IconButton icon={EllipsisVertical} label={t('explorer.actions')} size="xs" variant="ghost" />}
+              />
+            ) : null}
+          </div>
         ) : null}
       </header>
 
@@ -373,6 +383,7 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
             }}
           >
             {rows.map((row, index) => {
+              const isRoot = row.node.path === '';
               const expanded = row.node.isDir && expandedPathSet.has(row.node.path);
               const name = row.node.name || rootName;
               // A 260px sidebar cannot hold "12,480 Lines · 320 Files", so the
@@ -384,14 +395,16 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
                 <TreeRow
                   key={row.node.path || '/'}
                   depth={row.depth}
+                  indentDepth={Math.max(0, row.depth - 1)}
                   label={<span className="font-mono text-xs">{name}</span>}
                   title={`${row.node.path || rootName} — ${counts}`}
                   icon={row.node.isDir ? (expanded ? FolderOpen : Folder) : File}
                   iconTone={row.node.isDir ? 'accent' : 'neutral'}
                   expandable={row.node.isDir}
+                  hideToggle={isRoot}
                   expanded={expanded}
                   onToggle={() => {
-                    if (folderId != null) toggleTreePath(folderId, row.node.path, !expanded);
+                    if (folderId != null && !isRoot) toggleTreePath(folderId, row.node.path, !expanded);
                   }}
                   selected={!row.node.isDir && row.node.path === activeRelPath}
                   tabIndex={index === Math.min(focusIndex, rows.length - 1) ? 0 : -1}
