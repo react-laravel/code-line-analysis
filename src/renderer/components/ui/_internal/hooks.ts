@@ -8,7 +8,8 @@ const FOCUSABLE =
 
 function focusableWithin(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    element => element.offsetParent !== null || element === document.activeElement,
+    (element) =>
+      element.tabIndex >= 0 && !element.matches(':disabled') && (element.offsetParent !== null || element === document.activeElement),
   );
 }
 
@@ -40,7 +41,10 @@ export function useFocusTrap(
       const head = items[0];
       const tail = items[items.length - 1];
       const activeElement = document.activeElement;
-      if (event.shiftKey && (activeElement === head || activeElement === node)) {
+      if (!items.includes(activeElement as HTMLElement) && activeElement !== node) {
+        event.preventDefault();
+        (event.shiftKey ? tail : head).focus();
+      } else if (event.shiftKey && (activeElement === head || activeElement === node)) {
         event.preventDefault();
         tail.focus();
       } else if (!event.shiftKey && activeElement === tail) {
@@ -157,11 +161,19 @@ export function useFloating(
     if (placement === 'bottom' || placement === 'top') {
       top = placement === 'bottom' ? rect.bottom + offset : rect.top - offset - height;
       left =
-        align === 'start' ? rect.left : align === 'end' ? rect.right - width : rect.left + rect.width / 2 - width / 2;
+        align === 'start'
+          ? rect.left
+          : align === 'end'
+            ? rect.right - width
+            : rect.left + rect.width / 2 - width / 2;
     } else {
       left = placement === 'right' ? rect.right + offset : rect.left - offset - width;
       top =
-        align === 'start' ? rect.top : align === 'end' ? rect.bottom - height : rect.top + rect.height / 2 - height / 2;
+        align === 'start'
+          ? rect.top
+          : align === 'end'
+            ? rect.bottom - height
+            : rect.top + rect.height / 2 - height / 2;
     }
 
     left = Math.min(Math.max(VIEWPORT_MARGIN, left), Math.max(VIEWPORT_MARGIN, vw - width - VIEWPORT_MARGIN));

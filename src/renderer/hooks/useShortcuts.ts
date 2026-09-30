@@ -86,12 +86,9 @@ export function useShortcuts(): void {
   useEffect(() => {
     function currentTabs() {
       const { activeFolderId, lastViewPathByFolder } = useAppStore.getState();
-      const files = activeFolderId == null
-        ? []
-        : useTabsStore.getState().fileTabsByFolder[activeFolderId] ?? [];
-      const viewPath = activeFolderId == null
-        ? '/'
-        : lastViewPathByFolder[activeFolderId] ?? '/overview';
+      const files =
+        activeFolderId == null ? [] : (useTabsStore.getState().fileTabsByFolder[activeFolderId] ?? []);
+      const viewPath = activeFolderId == null ? '/' : (lastViewPathByFolder[activeFolderId] ?? '/overview');
       return { files, viewPath };
     }
 
@@ -109,7 +106,7 @@ export function useShortcuts(): void {
       const relPath = editorPathOf(location.pathname);
       if (relPath == null) return 0;
       const { files } = currentTabs();
-      const index = files.findIndex(tab => tab.relPath === relPath);
+      const index = files.findIndex((tab) => tab.relPath === relPath);
       return index < 0 ? 0 : index + 1;
     }
 
@@ -130,6 +127,20 @@ export function useShortcuts(): void {
 
     function onKeyDown(event: KeyboardEvent): void {
       const mod = isMac ? event.metaKey : event.ctrlKey;
+
+      // Settings owns keyboard interaction while modal. Background commands
+      // must not move focus, open another layer, or change the scan target.
+      // Mod+S is handled by the rule editor; ordinary text editing stays native.
+      if (useAppStore.getState().settingsOpen) {
+        const key = event.key.toLowerCase();
+        const backgroundCommand =
+          mod && (/^[1-9]$/.test(key) || ['k', 'p', 'f', 'r', '.', '\\', ',', 'b', 'o', 'w'].includes(key));
+        const tabNavigation =
+          (event.altKey && (key === 'arrowleft' || key === 'arrowright')) || (event.ctrlKey && key === 'tab');
+        if (backgroundCommand || tabNavigation || (key === '?' && !isTyping(event.target)))
+          event.preventDefault();
+        return;
+      }
 
       if (event.key === '?' && !mod && !event.ctrlKey && !isTyping(event.target)) {
         event.preventDefault();
@@ -209,8 +220,9 @@ export function useShortcuts(): void {
           if (useAppStore.getState().sidebarCollapsed) useAppStore.getState().toggleSidebar();
           window.requestAnimationFrame(() => {
             const tree = document.querySelector<HTMLElement>('[data-explorer-tree]');
-            const row = tree?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')
-              ?? tree?.querySelector<HTMLElement>('[role="treeitem"]');
+            const row =
+              tree?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]') ??
+              tree?.querySelector<HTMLElement>('[role="treeitem"]');
             row?.focus();
           });
           break;

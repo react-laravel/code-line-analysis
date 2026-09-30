@@ -70,6 +70,7 @@ export default function SideNav({ collapsed }: Props) {
         key={item.to}
         to={item.to}
         end={item.end}
+        aria-label={collapsed ? label : undefined}
         data-nav-item
         tabIndex={index === roving.focusIndex ? 0 : -1}
         onFocus={() => roving.setFocusIndex(index)}
@@ -103,7 +104,7 @@ export default function SideNav({ collapsed }: Props) {
       className={cn('flex flex-col gap-3 p-2', collapsed && 'items-stretch px-1')}
     >
       {NAV_GROUPS.map(group => {
-        // A group that collapsed to its own single view (all three of them,
+        // A group that collapsed to its own single view (all current groups,
         // after chunks 6-8) has no heading to print — it would repeat the row's
         // own label — and correspondingly no rule to draw on the 44px rail,
         // which blueprint §2.1 wants to be nav icons and nothing else.

@@ -6,7 +6,9 @@ import { Input } from './ui/input';
 import { Panel } from './ui/panel';
 import { RuleEditor, type RuleScope } from './ui/rule-editor';
 import { isFolderRulesResponse, readFolderRules, rulesFromText, rulesToText } from '../lib/folder-rules';
-import { useI18n } from '../i18n';
+import { useI18n, type TranslationKey } from '../i18n';
+import { Button } from './ui/button';
+import { Spinner } from './ui/spinner';
 
 const DUPLICATE_MIN_LINES_FLOOR = 3;
 
@@ -23,13 +25,15 @@ export interface RuleEditorPanelState {
   /** Persists this scope. Resolves `false` when nothing was written. */
   save: () => Promise<boolean>;
   saving: boolean;
+  loading: boolean;
+  dirty: boolean;
   /** `false` when the scope cannot be edited at all (no folder / old backend). */
   editable: boolean;
 }
 
 function isDuplicateApiMissing(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return /No handler registered|setDuplicateRules is not a function|getDuplicateRules is not a function/i.test(message);
+  return /No handler registered|(?:get|set)Duplicate(?:Rules|MinLines) is not a function/i.test(message);
 }
 
 /**
@@ -53,83 +57,120 @@ export function useRuleEditorPanel({ scope, folder, active }: RuleEditorPanelArg
   const [block, setBlock] = useState('');
   const [minLines, setMinLines] = useState('8');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [savedAt, setSavedAt] = useState<number | undefined>(undefined);
-  const [error, setError] = useState('');
+  const [errorKey, setErrorKey] = useState<TranslationKey | null>(null);
   const [duplicateApiMissing, setDuplicateApiMissing] = useState(false);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState({ allow: '', block: '', minLines: '8' });
+  const [retry, setRetry] = useState(0);
+  const operation = useRef(0);
+  const pendingSave = useRef(false);
 
   const folderId = folder?.id ?? null;
+  const scopeKey = `${scope}:${folderId ?? 'none'}`;
   const needsFolder = scope !== 'global' && folderId == null;
   // Feature detection against an older backend, kept from the duplicates
   // drawer (`DuplicatesView.tsx:44-45`) — but scoped to this panel instead of
   // rendering as a permanent page-level error (blueprint §3.6).
-  const duplicateApisPresent = typeof window.api.folders.getDuplicateRules === 'function'
-    && typeof window.api.folders.setDuplicateRules === 'function';
-  const editable = !needsFolder && (scope !== 'duplicates' || (duplicateApisPresent && !duplicateApiMissing));
+  const duplicateApisPresent =
+    typeof window.api.folders.getDuplicateRules === 'function' &&
+    typeof window.api.folders.setDuplicateRules === 'function' &&
+    typeof window.api.folders.getDuplicateMinLines === 'function' &&
+    typeof window.api.folders.setDuplicateMinLines === 'function';
+  const available =
+    !needsFolder && (scope !== 'duplicates' || (duplicateApisPresent && !duplicateApiMissing));
+  const editable = active && available && loadedKey === scopeKey && !loading;
+  const dirty =
+    editable &&
+    (allow !== baseline.allow ||
+      block !== baseline.block ||
+      (scope === 'duplicates' && minLines !== baseline.minLines));
+  const error = errorKey ? t(errorKey) : '';
 
   // Latest values for the save callback, so it does not change identity on
   // every keystroke (the dialog footer holds on to it).
-  const latest = useRef({ allow, block, minLines, scope, folderId });
-  latest.current = { allow, block, minLines, scope, folderId };
+  const latest = useRef({ allow, block, minLines, scope, folderId, active, editable, scopeKey });
+  latest.current = { allow, block, minLines, scope, folderId, active, editable, scopeKey };
 
   useEffect(() => {
-    if (!active || needsFolder) return;
-
-    let ignore = false;
+    const token = ++operation.current;
+    setLoadedKey(null);
+    setAllow('');
+    setBlock('');
+    setMinLines('8');
     setSavedAt(undefined);
-    setError('');
+    setErrorKey(null);
     setDuplicateApiMissing(false);
+    setLoading(false);
+    if (!active || needsFolder) return;
+    if (scope === 'duplicates' && !duplicateApisPresent) {
+      setDuplicateApiMissing(true);
+      return;
+    }
+    setLoading(true);
+    const isCurrent = () => operation.current === token;
 
-    async function load(): Promise<FolderRules | undefined> {
-      if (scope === 'global') return readFolderRules(await window.api.settings.getGlobalRules());
-      if (folderId == null) return undefined;
-      if (scope === 'folder') return readFolderRules(await window.api.folders.getRules(folderId));
-      if (!duplicateApisPresent) {
-        setDuplicateApiMissing(true);
-        return undefined;
-      }
+    async function load(): Promise<{ rules: FolderRules; count: number }> {
+      if (scope === 'global')
+        return { rules: readFolderRules(await window.api.settings.getGlobalRules()), count: 8 };
+      if (scope === 'folder')
+        return { rules: readFolderRules(await window.api.folders.getRules(folderId as number)), count: 8 };
       const [rules, count] = await Promise.all([
-        window.api.folders.getDuplicateRules(folderId),
-        window.api.folders.getDuplicateMinLines(folderId).catch(() => 8),
+        window.api.folders.getDuplicateRules(folderId as number),
+        window.api.folders.getDuplicateMinLines(folderId as number),
       ]);
-      if (!ignore) setMinLines(String(count));
-      return readFolderRules(rules);
+      return { rules: readFolderRules(rules), count };
     }
 
     void load()
-      .then(rules => {
-        if (ignore || !rules) return;
+      .then(({ rules, count }) => {
+        if (!isCurrent()) return;
         const text = rulesToText(rules);
         setAllow(text.allow);
         setBlock(text.block);
+        setMinLines(String(count));
+        setBaseline({ ...text, minLines: String(count) });
+        setLoadedKey(scopeKey);
       })
-      .catch(loadError => {
-        if (ignore) return;
+      .catch((loadError) => {
+        if (!isCurrent()) return;
         if (scope === 'duplicates' && isDuplicateApiMissing(loadError)) setDuplicateApiMissing(true);
-        else setError(t('common.loadFailed'));
+        else setErrorKey('common.loadFailed');
+      })
+      .finally(() => {
+        if (isCurrent()) setLoading(false);
       });
 
     return () => {
-      ignore = true;
+      operation.current += 1;
     };
-  }, [active, duplicateApisPresent, folderId, needsFolder, scope, t]);
+  }, [active, duplicateApisPresent, folderId, needsFolder, scope, scopeKey, retry]);
 
   const save = useCallback(async (): Promise<boolean> => {
     const current = latest.current;
+    if (!current.active || !current.editable || pendingSave.current) return false;
     if (current.scope !== 'global' && current.folderId == null) return false;
 
     const payload = rulesFromText(current.allow, current.block);
     const parsedMinLines = Number(current.minLines);
     if (
-      current.scope === 'duplicates'
-      && (!Number.isInteger(parsedMinLines) || parsedMinLines < DUPLICATE_MIN_LINES_FLOOR)
+      current.scope === 'duplicates' &&
+      (!Number.isInteger(parsedMinLines) || parsedMinLines < DUPLICATE_MIN_LINES_FLOOR)
     ) {
-      setError(t('settings.duplicateMinLinesError'));
+      setErrorKey('settings.duplicateMinLinesError');
       return false;
     }
 
+    // Ref-level lock also covers repeated shortcuts before React rerenders.
+    pendingSave.current = true;
+    const token = operation.current;
+    const isCurrent = () =>
+      token === operation.current && latest.current.active && latest.current.scopeKey === current.scopeKey;
     setSaving(true);
     setSavedAt(undefined);
-    setError('');
+    setErrorKey(null);
+    let thresholdWritten = false;
 
     try {
       let response: typeof payload;
@@ -139,34 +180,54 @@ export function useRuleEditorPanel({ scope, folder, active }: RuleEditorPanelArg
         response = await window.api.folders.setRules(current.folderId as number, payload);
       } else {
         await window.api.folders.setDuplicateMinLines(current.folderId as number, parsedMinLines);
+        thresholdWritten = true;
         response = await window.api.folders.setDuplicateRules(current.folderId as number, payload);
       }
 
-      // Some backends answer with an empty ack; re-read rather than trust it.
+      if (!isCurrent()) return false;
+      // Some backends answer with an empty ack; retain the submitted payload.
       const persisted = isFolderRulesResponse(response) ? readFolderRules(response) : payload;
       const text = rulesToText(persisted);
-      setAllow(text.allow);
-      setBlock(text.block);
-      setSavedAt(Date.now());
+      setBaseline({ ...text, minLines: String(parsedMinLines) });
+      // Normally editing is locked during a save; keep a newer draft intact
+      // even if an external caller changed it while the request was in flight.
+      if (
+        latest.current.allow === current.allow &&
+        latest.current.block === current.block &&
+        latest.current.minLines === current.minLines
+      ) {
+        setAllow(text.allow);
+        setBlock(text.block);
+        setSavedAt(Date.now());
+      }
       return true;
     } catch (saveError) {
+      if (!isCurrent()) return false;
       if (current.scope === 'duplicates' && isDuplicateApiMissing(saveError)) {
         setDuplicateApiMissing(true);
-        setError(t('duplicates.rulesUnavailable'));
+        setErrorKey(thresholdWritten ? 'settings.duplicatePartialSave' : 'duplicates.rulesUnavailable');
       } else {
-        setError(current.scope === 'global' ? t('settings.saveFailed') : t('folderManager.saveFailed'));
+        setErrorKey(
+          thresholdWritten
+            ? 'settings.duplicatePartialSave'
+            : current.scope === 'global'
+              ? 'settings.saveFailed'
+              : 'folderManager.saveFailed',
+        );
       }
       return false;
     } finally {
+      pendingSave.current = false;
       setSaving(false);
     }
-  }, [t]);
+  }, []);
 
-  const help = scope === 'global'
-    ? t('settings.globalRulesHelp')
-    : scope === 'folder'
-      ? t('folderManager.rulesHelp')
-      : t('duplicates.rulesHelp');
+  const help =
+    scope === 'global'
+      ? t('settings.globalRulesHelp')
+      : scope === 'folder'
+        ? t('folderManager.rulesHelp')
+        : t('duplicates.rulesHelp');
 
   const node = (
     <div className="flex flex-col gap-3">
@@ -178,10 +239,21 @@ export function useRuleEditorPanel({ scope, folder, active }: RuleEditorPanelArg
         </Panel>
       ) : null}
 
-      {scope === 'duplicates' && !needsFolder && !editable ? (
+      {scope === 'duplicates' && !needsFolder && !available ? (
         <Panel tone="danger">
           <p className="m-0 text-xs text-danger-text">{t('duplicates.rulesUnavailable')}</p>
         </Panel>
+      ) : null}
+
+      {loading ? (
+        <div role="status">
+          <Spinner label={t('settings.loading')} />
+        </div>
+      ) : null}
+      {!loading && errorKey === 'common.loadFailed' ? (
+        <Button className="self-start" onClick={() => setRetry((value) => value + 1)}>
+          {t('settings.retry')}
+        </Button>
       ) : null}
 
       <RuleEditor
@@ -190,11 +262,12 @@ export function useRuleEditorPanel({ scope, folder, active }: RuleEditorPanelArg
         block={block}
         blockPlaceholder={scope === 'global' ? DEFAULT_BLACKLIST.join('\n') : undefined}
         showSave={false}
-        onChange={next => {
+        disabled={!editable || saving}
+        onChange={(next) => {
           setAllow(next.allow);
           setBlock(next.block);
           setSavedAt(undefined);
-          setError('');
+          setErrorKey(null);
         }}
         onSave={async () => {
           await save();
@@ -210,26 +283,34 @@ export function useRuleEditorPanel({ scope, folder, active }: RuleEditorPanelArg
         }}
       />
 
-      {scope === 'duplicates' && editable ? (
-        <Field label={t('settings.duplicateMinLines')} hint={t('settings.duplicateMinLinesHelp')}>
+      {scope === 'duplicates' && available ? (
+        <Field
+          label={t('settings.duplicateMinLines')}
+          hint={t('settings.duplicateMinLinesHelp')}
+          error={errorKey === 'settings.duplicateMinLinesError' ? error : undefined}
+        >
           <Input
             type="number"
+            disabled={!editable || saving}
             inputMode="numeric"
             min={DUPLICATE_MIN_LINES_FLOOR}
             className="w-28"
             value={minLines}
-            onChange={event => {
+            onChange={(event) => {
               setMinLines(event.target.value);
               setSavedAt(undefined);
-              setError('');
+              setErrorKey(null);
             }}
           />
         </Field>
       ) : null}
 
-      <p className="m-0 text-xs text-fg-subtle">{t('settings.rulesPrecedence')}</p>
+      <p className="m-0 rounded-md border border-border bg-surface-2 p-3 text-xs leading-relaxed text-fg-muted">
+        {t('settings.rulesPrecedence')}
+      </p>
+      {dirty ? <p className="m-0 text-xs text-fg-muted">{t('settings.unsavedHelp')}</p> : null}
     </div>
   );
 
-  return { node, save, saving, editable };
+  return { node, save, saving, loading, dirty, editable };
 }

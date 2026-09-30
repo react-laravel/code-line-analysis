@@ -19,6 +19,10 @@ export interface DialogProps {
   /** `false` while a job inside the dialog runs. */
   dismissible?: boolean;
   className?: string;
+  /** Optional layout hooks for larger, multi-pane dialogs. */
+  bodyClassName?: string;
+  backdropClassName?: string;
+  footerClassName?: string;
   closeLabel?: string;
   children: React.ReactNode;
 }
@@ -40,6 +44,9 @@ export function Dialog({
   initialFocus,
   dismissible = true,
   className,
+  bodyClassName,
+  backdropClassName,
+  footerClassName,
   closeLabel = 'Close',
   children,
 }: DialogProps) {
@@ -58,7 +65,12 @@ export function Dialog({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[var(--ds-z-dialog)] flex items-start justify-center p-8 pt-[12vh]">
+    <div
+      className={cn(
+        'fixed inset-0 z-[var(--ds-z-dialog)] flex items-start justify-center p-8 pt-[12vh]',
+        backdropClassName,
+      )}
+    >
       <div className="absolute inset-0 bg-overlay" aria-hidden />
       <div
         ref={ref}
@@ -94,9 +106,11 @@ export function Dialog({
             />
           ) : null}
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
+        <div className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-3', bodyClassName)}>{children}</div>
         {footer ? (
-          <footer className="flex justify-end gap-2 border-t border-border px-4 py-3">{footer}</footer>
+          <footer className={cn('flex justify-end gap-2 border-t border-border px-4 py-3', footerClassName)}>
+            {footer}
+          </footer>
         ) : null}
       </div>
     </div>,
@@ -201,7 +215,7 @@ export function ConfirmDialog({
             </span>
             <input
               value={typed}
-              onChange={event => setTyped(event.target.value)}
+              onChange={(event) => setTyped(event.target.value)}
               className="h-control-md rounded-md border border-border bg-inset px-2 font-mono text-sm text-fg"
             />
           </label>

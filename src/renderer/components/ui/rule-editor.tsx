@@ -34,6 +34,7 @@ export interface RuleEditorProps {
    * the standalone behaviour.
    */
   showSave?: boolean;
+  disabled?: boolean;
 }
 
 /** Normalise a rule textarea: trim, drop blanks, de-duplicate, keep order. */
@@ -62,6 +63,7 @@ export function RuleEditor({
   labels,
   className,
   showSave = true,
+  disabled = false,
 }: RuleEditorProps) {
   const [pending, setPending] = useState(false);
   const saving = state?.saving ?? pending;
@@ -81,29 +83,42 @@ export function RuleEditor({
         <Field label={labels.allow} hint={labels.allowHint}>
           <Textarea
             mono
+            disabled={disabled || saving}
             value={allow}
             placeholder={placeholder}
-            onChange={event => onChange({ allow: event.target.value, block })}
+            onChange={(event) => onChange({ allow: event.target.value, block })}
           />
         </Field>
         <Field label={labels.block} hint={labels.blockHint}>
           <Textarea
             mono
+            disabled={disabled || saving}
             value={block}
             placeholder={blockPlaceholder}
-            onChange={event => onChange({ allow, block: event.target.value })}
+            onChange={(event) => onChange({ allow, block: event.target.value })}
           />
         </Field>
       </div>
       <div className="flex items-center gap-2">
         {showSave ? (
-          <Button variant="primary" loading={saving} onClick={() => void save()}>
+          <Button
+            variant="primary"
+            loading={saving}
+            disabled={disabled || saving}
+            onClick={() => void save()}
+          >
             {labels.save}
           </Button>
         ) : null}
-        {state?.error ? <span className="text-xs text-danger-text">{state.error}</span> : null}
+        {state?.error ? (
+          <span role="alert" className="text-xs text-danger-text">
+            {state.error}
+          </span>
+        ) : null}
         {!state?.error && state?.savedAt && labels.savedAt ? (
-          <span className="text-xs text-success-text">{labels.savedAt(state.savedAt)}</span>
+          <span role="status" className="text-xs text-success-text">
+            {labels.savedAt(state.savedAt)}
+          </span>
         ) : null}
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { BarChart3, FileCode2, Share2, type LucideIcon } from 'lucide-react';
+import { BarChart3, FileCode2, FolderTree, Share2, type LucideIcon } from 'lucide-react';
 import type { TranslationKey } from '../i18n';
 
 export interface NavItem {
@@ -21,14 +21,21 @@ export interface NavGroup {
  * Eleven flat items became three.
  *
  * Setup is not here (DESIGN-SYSTEM §9 rule 2). `/folders` moved into
- * Settings → Scan rules as the `folder` scope, and Workspace is reached from
- * the folder menu's "Manage folders…", from `⌘K`, and automatically as the
- * first-run screen — so neither occupies a nav slot.
+ * Settings → Scan rules as the `folder` scope. Workspace now also has an
+ * explicit "All repositories" entry, alongside the folder menu's "Manage
+ * folders…", `⌘K`, and the first-run screen, so it is easy to rediscover.
  *
  * `SideNav` hides a group heading when the group holds one item with the same
- * label, which is why this renders as a flat three-row list.
+ * label, which is why this renders as a flat four-row list.
  */
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    id: 'workspace',
+    labelKey: 'nav.allRepositories',
+    items: [
+      { to: '/', labelKey: 'nav.allRepositories', icon: FolderTree, end: true },
+    ],
+  },
   {
     id: 'overview',
     labelKey: 'nav.overview',
