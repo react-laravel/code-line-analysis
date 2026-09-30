@@ -33,7 +33,7 @@ export function MetricGrid({ metrics }: { metrics: OverviewMetric[] }) {
           />
         ))}
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
         {rest.map(item => (
           <StatTile
             key={item.id}
@@ -56,7 +56,7 @@ export function MetricGridSkeleton() {
           <Skeleton key={index} variant="tile" className="h-20" />
         ))}
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
         {Array.from({ length: REST }, (_, index) => (
           <Skeleton key={index} variant="tile" />
         ))}

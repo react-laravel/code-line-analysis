@@ -166,8 +166,7 @@ export function useGraphMenu({
 
 /**
  * The metric strip that used to sit above each graph as `card metric-card`
- * blocks. Wide screens get the tiles; narrower ones fold the same numbers into
- * the toolbar subtitle, exactly as the Code lenses do.
+ * blocks. Keep the numbers visible at every width, separate from the title.
  */
 export interface ArchMetric {
   label: string;
@@ -177,20 +176,10 @@ export interface ArchMetric {
 export function ArchMetrics({ items }: { items: ArchMetric[] }) {
   if (items.length === 0) return null;
   return (
-    <div className="hidden grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 min-[1200px]:grid">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
       {items.map(item => (
         <StatTile key={item.label} label={item.label} value={item.value} />
       ))}
     </div>
-  );
-}
-
-/** The same numbers as one line, for the toolbar subtitle under 1200px. */
-export function ArchMetricsText({ items }: { items: ArchMetric[] }) {
-  if (items.length === 0) return null;
-  return (
-    <span className="min-[1200px]:hidden">
-      {items.map(item => `${item.label} ${item.value}`).join(' · ')}
-    </span>
   );
 }

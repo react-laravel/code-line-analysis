@@ -97,7 +97,7 @@ function ArchitectureSurface({ folder }: { folder: FolderRow }) {
   }, [params, setParams]);
 
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-3">
+    <div className="grid min-w-0 grid-cols-1 gap-4">
       <Toolbar
         sticky={false}
         className="rounded-lg border border-border"
@@ -126,7 +126,7 @@ function ArchitectureSurface({ folder }: { folder: FolderRow }) {
           <>
             <ToggleGroup
               aria-label={t('code.lens')}
-              variant="chips"
+              variant="segmented"
               value={lens}
               onValueChange={selectLens}
               options={options}

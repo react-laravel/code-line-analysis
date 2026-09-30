@@ -28,6 +28,8 @@ export default function StatusBar() {
   const { locale, t } = useI18n();
   const summary = useAppStore(state => state.summary);
   const status = useScanStore(state => state.status);
+  const scanFolderId = useScanStore(state => state.folderId);
+  const scanFolder = useAppStore(state => state.folders.find(folder => folder.id === scanFolderId));
   const progress = useScanStore(state => state.progress);
   const durationMs = useScanStore(state => state.durationMs);
   const filesScanned = useScanStore(state => state.filesScanned);
@@ -62,7 +64,7 @@ export default function StatusBar() {
   return (
     <footer className="flex h-statusbar shrink-0 items-center gap-3 border-t border-border bg-surface px-2 text-xs text-fg-muted">
       <div className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
-        <StatusDot status={STATUS_TONE[status] ?? 'idle'} label={label} />
+        <StatusDot status={STATUS_TONE[status] ?? 'idle'} label={scanning && scanFolder ? `${scanFolder.name} · ${label}` : label} />
         {scanning && progress ? (
           <span className="ds-tabular shrink-0">
             {progress.done.toLocaleString(locale)}/{progress.total.toLocaleString(locale)}

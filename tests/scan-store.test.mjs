@@ -4,6 +4,7 @@ import { createServer } from 'vite';
 
 let server;
 let useScanStore;
+let isFolderScanning;
 let useAppStore;
 let onProgress;
 let resolveScan;
@@ -40,7 +41,7 @@ before(async () => {
     optimizeDeps: { noDiscovery: true, include: [] },
     appType: 'custom',
   });
-  ({ useScanStore } = await server.ssrLoadModule('/src/renderer/store/scan-store.ts'));
+  ({ useScanStore, isFolderScanning } = await server.ssrLoadModule('/src/renderer/store/scan-store.ts'));
   ({ useAppStore } = await server.ssrLoadModule('/src/renderer/store/app-store.ts'));
 });
 
@@ -146,4 +147,27 @@ test('a background scan finishing ahead of a queued manual scan keeps the manual
   assert.equal(useScanStore.getState().status, 'done');
   assert.equal(useScanStore.getState().folderId, 2);
   assert.equal(useAppStore.getState().revision, 2);
+});
+
+test('another repository repeatedly scanning does not change the current folder scan control', () => {
+  for (let scan = 0; scan < 20; scan += 1) {
+    progress('walking', 45);
+    assert.equal(isFolderScanning(useScanStore.getState(), 60), false);
+    assert.equal(isFolderScanning(useScanStore.getState(), 45), true);
+    progress('done', 45);
+    assert.equal(isFolderScanning(useScanStore.getState(), 60), false);
+  }
+  assert.equal(isFolderScanning(useScanStore.getState(), null), false);
+});
+
+test('the current folder control follows its own queued, running and finished states', async () => {
+  const pending = useScanStore.getState().run(60);
+  assert.equal(isFolderScanning(useScanStore.getState(), 60), true);
+  progress('parsing', 60);
+  assert.equal(isFolderScanning(useScanStore.getState(), 60), true);
+  assert.equal(isFolderScanning(useScanStore.getState(), 45), false);
+  progress('done', 60);
+  resolveScan({ totalFiles: 10 });
+  await pending;
+  assert.equal(isFolderScanning(useScanStore.getState(), 60), false);
 });

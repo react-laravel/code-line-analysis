@@ -156,3 +156,12 @@ export const useScanStore = create<ScanState>((set, get) => ({
 export function useIsScanning(): boolean {
   return useScanStore(state => state.status === 'running' || state.status === 'queued');
 }
+
+/** Folder controls must not follow another repository's background work. */
+export function isFolderScanning(
+  state: Pick<ScanState, 'status' | 'folderId'>,
+  folderId: number | null | undefined,
+): boolean {
+  return folderId != null && state.folderId === folderId
+    && (state.status === 'running' || state.status === 'queued');
+}

@@ -20,7 +20,6 @@ import ApiRoutesList from './ApiRoutesList';
 import ApiRoutesGraph from './ApiRoutesGraph';
 import {
   ArchMetrics,
-  ArchMetricsText,
   useGraphMenu,
   type ArchLens,
   type ArchLensArgs,
@@ -402,13 +401,7 @@ export function useRoutesLens({ folder, query, setQuery, active }: ArchLensArgs)
       },
     ],
     searchPlaceholder: t('apiRoutes.searchPlaceholder'),
-    subtitle: (
-      <>
-        {overview ? t('apiRoutes.filteredCount', { shown: filteredRoutes.length, total: overview.routes.length }) : t('apiRoutes.subtitle')}
-        {' '}
-        <ArchMetricsText items={metrics} />
-      </>
-    ),
+    subtitle: overview ? t('apiRoutes.filteredCount', { shown: filteredRoutes.length, total: overview.routes.length }) : t('apiRoutes.subtitle'),
     content,
   };
 }

@@ -99,7 +99,7 @@ function CodeSurface({ folder }: { folder: FolderRow }) {
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 grid-cols-1 gap-4">
       <Toolbar
         sticky={false}
         className="rounded-lg border border-border"
@@ -111,7 +111,7 @@ function CodeSurface({ folder }: { folder: FolderRow }) {
           <SearchInput
             size="sm"
             data-view-search
-            wrapperClassName="w-[min(320px,40vw)]"
+            wrapperClassName="w-[clamp(180px,24vw,320px)] max-w-full"
             aria-label={t('code.search')}
             placeholder={current.searchPlaceholder ?? t('code.searchPlaceholder')}
             value={query}
@@ -123,7 +123,7 @@ function CodeSurface({ folder }: { folder: FolderRow }) {
           <>
             <ToggleGroup
               aria-label={t('code.lens')}
-              variant="chips"
+              variant="segmented"
               value={lens}
               onValueChange={selectLens}
               options={options}

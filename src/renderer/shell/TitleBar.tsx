@@ -7,7 +7,7 @@ import { Tooltip } from '../components/ui/tooltip';
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { useActiveFolder, useAppStore } from '../store/app-store';
-import { useScanStore } from '../store/scan-store';
+import { isFolderScanning, useIsScanning, useScanStore } from '../store/scan-store';
 import { useFolderActions } from '../hooks/useFolderActions';
 import FolderSwitcher from './FolderSwitcher';
 import { isTauriRuntime } from '../runtime/tauri-api';
@@ -40,11 +40,11 @@ export default function TitleBar() {
   const toggleSidebar = useAppStore(state => state.toggleSidebar);
   const setSettingsOpen = useAppStore(state => state.setSettingsOpen);
   const setPaletteOpen = useAppStore(state => state.setPaletteOpen);
-  const status = useScanStore(state => state.status);
+  const busy = useIsScanning();
+  const scanning = useScanStore(state => isFolderScanning(state, folder?.id));
   const lastScanAt = useScanStore(state => (folder ? state.lastScanAt[folder.id] : undefined));
   const actions = useFolderActions();
 
-  const scanning = status === 'running' || status === 'queued';
   const canScan = folder != null && folder.isAvailable;
 
   const rescan = scanning ? (
@@ -56,7 +56,7 @@ export default function TitleBar() {
       variant="secondary"
       size="sm"
       icon={RefreshCw}
-      disabled={!canScan}
+      disabled={!canScan || busy}
       menuLabel={t('app.rescanOptions')}
       onClick={() => actions.rescan()}
       items={[
@@ -64,13 +64,13 @@ export default function TitleBar() {
           id: 'rescan-full',
           label: t('app.rescanFull'),
           onSelect: () => actions.rescan({ detectDuplicates: true }),
-          disabled: !canScan,
+          disabled: !canScan || busy,
         },
         {
           id: 'rescan-no-duplicates',
           label: t('app.rescanWithoutDuplicates'),
           onSelect: () => actions.rescan({ detectDuplicates: false }),
-          disabled: !canScan,
+          disabled: !canScan || busy,
         },
       ]}
     >

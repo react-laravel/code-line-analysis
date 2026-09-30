@@ -24,7 +24,6 @@ import { escapeHtml } from '../../utils/escapeHtml';
 import { useRevision } from '../../store/app-store';
 import {
   ArchMetrics,
-  ArchMetricsText,
   useGraphMenu,
   type ArchLens,
   type ArchLensArgs,
@@ -347,15 +346,9 @@ export function useImportsLens({ folder, active }: ArchLensArgs): ArchLens {
     count: graph?.connectedFiles,
     filters,
     overflow: menu.items,
-    subtitle: (
-      <>
-        {graph
-          ? t('relations.visibleGraph', { visible: visibleGraph.nodes.length, total: graph.connectedFiles })
-          : t('relations.subtitle')}
-        {' '}
-        <ArchMetricsText items={metrics} />
-      </>
-    ),
+    subtitle: graph
+      ? t('relations.visibleGraph', { visible: visibleGraph.nodes.length, total: graph.connectedFiles })
+      : t('relations.subtitle'),
     content,
   };
 }

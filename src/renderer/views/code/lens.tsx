@@ -48,27 +48,16 @@ export interface LensMetric {
 
 /**
  * The `metric-card` rows that used to sit above these tables. Metrics that have
- * a lens chip live in the chip; the rest render here, and collapse into the
- * toolbar subtitle under 1200px (blueprint §2.3).
+ * a lens chip live in the chip; the rest stay visible here at every width.
  */
 export function LensMetrics({ items }: { items: LensMetric[] }) {
   if (items.length === 0) return null;
   return (
-    <div className="hidden grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 min-[1200px]:grid">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
       {items.map(item => (
         <StatTile key={item.label} icon={item.icon} label={item.label} value={item.value} />
       ))}
     </div>
-  );
-}
-
-/** The same numbers as one line, for the toolbar subtitle under 1200px. */
-export function LensMetricsText({ items }: { items: LensMetric[] }) {
-  if (items.length === 0) return null;
-  return (
-    <span className="min-[1200px]:hidden">
-      {items.map(item => `${item.label} ${item.value}`).join(' · ')}
-    </span>
   );
 }
 

@@ -18,7 +18,7 @@ import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useI18n } from '../../i18n';
 import { useRevision } from '../../store/app-store';
 import { useScanStore } from '../../store/scan-store';
-import { LensMetrics, LensMetricsText, sortRows, type CodeLens, type LensArgs, type LensMetric } from './lens';
+import { LensMetrics, sortRows, type CodeLens, type LensArgs, type LensMetric } from './lens';
 
 const LIMITS = [50, 100, 250];
 
@@ -151,11 +151,7 @@ export function useFunctionsLens({ folder, query, clearQuery, active }: LensArgs
   return {
     count: funcs.length > 0 ? funcs.length : undefined,
     filters,
-    subtitle: (
-      <>
-        {t('top.subtitle')} <LensMetricsText items={metrics} />
-      </>
-    ),
+    subtitle: t('top.subtitle'),
     searchPlaceholder: t('top.searchPlaceholder'),
     content,
   };

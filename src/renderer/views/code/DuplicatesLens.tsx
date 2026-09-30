@@ -7,7 +7,7 @@ import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
 import { useI18n } from '../../i18n';
 import { useAppStore, useRevision } from '../../store/app-store';
-import { LensMetrics, LensMetricsText, type CodeLens, type LensArgs, type LensMetric } from './lens';
+import { LensMetrics, type CodeLens, type LensArgs, type LensMetric } from './lens';
 
 const DUPLICATE_MIN_LINES_MIN = 3;
 const DUPLICATE_MIN_LINES_MAX = 200;
@@ -130,7 +130,7 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
   );
 
   const content = (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 grid-cols-1 gap-4">
       <LensMetrics items={metrics} />
 
       {visible.length === 0 ? (
@@ -153,20 +153,10 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
           padded={false}
           className="overflow-hidden"
           header={(
-            <span className="flex w-full min-w-0 items-center justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="grid size-7 shrink-0 place-items-center rounded-md bg-running-quiet text-running-text">
-                  <Copy aria-hidden strokeWidth={1.75} size={14} />
-                </span>
-                <span className="grid min-w-0 gap-0.5">
-                  <strong className="truncate text-xs text-fg">
-                    {t('duplicates.groupLabel', { index: (clusterIndex + 1).toLocaleString(locale) })}
-                  </strong>
-                  <span className="truncate font-mono text-2xs text-fg-subtle" title={cluster.hash}>
-                    {t('duplicates.hash')}: {cluster.hash.slice(0, 12)}
-                  </span>
-                </span>
-              </span>
+            <span className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 py-1">
+              <strong className="truncate text-sm font-semibold text-fg" title={`${t('duplicates.hash')}: ${cluster.hash}`}>
+                {t('duplicates.groupLabel', { index: (clusterIndex + 1).toLocaleString(locale) })}
+              </strong>
               <span className="flex shrink-0 gap-1">
                 <Badge>{cluster.occurrences.length.toLocaleString(locale)} {t('duplicates.occurrences')}</Badge>
                 <Badge>{cluster.lines.toLocaleString(locale)} {t('common.lines')}</Badge>
@@ -182,14 +172,14 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
                 onClick={() => navigate(
                   `/editor/${encodeURIComponent(occurrence.relPath)}?line=${occurrence.startLine}&endLine=${occurrence.endLine}&highlight=duplicate`,
                 )}
-                className="grid w-full min-w-0 grid-cols-[14px_minmax(0,1fr)_auto_14px] items-center gap-2 border-b border-border px-3 py-1.5 text-left text-sm text-fg last:border-b-0 hover:bg-hover"
+                className="group grid min-h-12 w-full min-w-0 grid-cols-[16px_minmax(0,1fr)_auto_14px] items-center gap-3 border-b border-border px-3 py-2 text-left text-sm text-fg last:border-b-0 hover:bg-hover focus-visible:relative focus-visible:z-10"
               >
                 <FileCode2 aria-hidden strokeWidth={1.75} size={14} className="text-fg-subtle" />
-                <PathCell path={occurrence.relPath} className="min-w-0" />
-                <span className="text-2xs whitespace-nowrap text-fg-muted">
+                <PathCell path={occurrence.relPath} layout="stacked" />
+                <span className="ds-tabular rounded-md bg-inset px-2 py-1 text-xs whitespace-nowrap text-fg-muted">
                   {t('duplicates.lineRange', { start: occurrence.startLine, end: occurrence.endLine })}
                 </span>
-                <ChevronRight aria-hidden strokeWidth={1.75} size={14} className="text-fg-muted" />
+                <ChevronRight aria-hidden strokeWidth={1.75} size={14} className="text-fg-subtle group-hover:text-accent-text group-focus-visible:text-accent-text" />
               </button>
             ))}
           </div>
@@ -209,11 +199,7 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
         onSelect: openRules,
       },
     ],
-    subtitle: (
-      <>
-        {t('duplicates.title', { count: minLines.toLocaleString(locale) })} <LensMetricsText items={metrics} />
-      </>
-    ),
+    subtitle: t('duplicates.title', { count: minLines.toLocaleString(locale) }),
     searchPlaceholder: t('duplicates.searchPlaceholder'),
     content,
   };

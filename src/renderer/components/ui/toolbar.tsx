@@ -43,18 +43,18 @@ export function Toolbar({
   return (
     <div
       className={cn(
-        'relative shrink-0 border-b border-border bg-surface',
+        'relative min-w-0 shrink-0 border-b border-border bg-surface',
         sticky && 'sticky top-0 z-[var(--ds-z-chrome)]',
         className,
       )}
     >
-      <div className="flex h-toolbar items-center gap-1.5 px-2">
+      <div className="flex min-h-toolbar flex-wrap items-center gap-x-4 gap-y-3 px-3 py-3">
         {Icon ? <Icon size={14} strokeWidth={1.75} aria-hidden className="shrink-0 text-fg-muted" /> : null}
-        <div className="flex min-w-0 items-baseline gap-2">
-          {title ? <h1 className="truncate text-sm font-semibold text-fg">{title}</h1> : null}
-          {subtitle ? <span className="truncate text-xs text-fg-muted">{subtitle}</span> : null}
+        <div className="grid min-w-0 flex-1 basis-44 gap-1">
+          {title ? <h1 className="m-0 truncate text-lg font-semibold text-fg">{title}</h1> : null}
+          {subtitle ? <div className="text-xs leading-relaxed text-fg-muted">{subtitle}</div> : null}
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
           {actions}
           {overflow && overflow.length > 0 ? (
             <DropdownMenu
@@ -68,7 +68,7 @@ export function Toolbar({
         </div>
       </div>
       {filters ? (
-        <div className="flex flex-wrap items-center gap-1 border-t border-border px-2 py-1">{filters}</div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-surface-2/60 px-3 py-2">{filters}</div>
       ) : null}
       {progress ? (
         <ProgressBar {...progress} variant="line" className="absolute inset-x-0 bottom-0" />

@@ -20,7 +20,6 @@ import { escapeHtml } from '../../utils/escapeHtml';
 import { useActiveIsLaravel, useRevision } from '../../store/app-store';
 import {
   ArchMetrics,
-  ArchMetricsText,
   useGraphMenu,
   type ArchLens,
   type ArchLensArgs,
@@ -456,15 +455,9 @@ export function useSchemaLens({ folder, active }: ArchLensArgs): ArchLens {
     available,
     filters,
     overflow: available ? menu.items : undefined,
-    subtitle: (
-      <>
-        {schema?.isLaravel
-          ? t('laravelSchema.filteredRelations', { shown: filteredRelations.length, total: ormRelations.length })
-          : t('laravelSchema.subtitle')}
-        {' '}
-        <ArchMetricsText items={metrics} />
-      </>
-    ),
+    subtitle: schema?.isLaravel
+      ? t('laravelSchema.filteredRelations', { shown: filteredRelations.length, total: ormRelations.length })
+      : t('laravelSchema.subtitle'),
     content,
   };
 }
