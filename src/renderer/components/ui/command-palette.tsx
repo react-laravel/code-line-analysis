@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useVirtualWindow } from '../../hooks/useVirtualWindow';
 import { cn } from '../../lib/utils';
 import { Kbd } from './kbd';
 import { useDismiss, useFocusTrap } from './_internal/hooks';
@@ -93,10 +94,23 @@ export function CommandPalette({
 
   const rows = useMemo(() => flat.flatMap(section => section.items), [flat]);
 
+  const entries = useMemo(() => {
+    let index = 0;
+    return flat.flatMap(section => [
+      { group: section.group, command: null as Command | null, index: -1 },
+      ...section.items.map(command => ({ group: section.group, command, index: index++ })),
+    ]);
+  }, [flat]);
+  const virtual = useVirtualWindow(listRef, entries.length, 30, open && entries.length > 200);
   useEffect(() => {
-    const node = listRef.current?.querySelector<HTMLElement>('[data-active="true"]');
-    node?.scrollIntoView({ block: 'nearest' });
-  }, [activeIndex, query]);
+    const viewport = listRef.current;
+    if (!viewport) return;
+    const entryIndex = entries.findIndex(entry => entry.index === activeIndex);
+    if (entryIndex < 0) return;
+    const top = entryIndex * 30;
+    if (top < viewport.scrollTop) viewport.scrollTop = top;
+    else if (top + 30 > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top + 30 - viewport.clientHeight;
+  }, [activeIndex, entries, open]);
 
   if (!open) return null;
 
@@ -150,45 +164,37 @@ export function CommandPalette({
           {rows.length === 0 ? (
             <div className="px-3 py-6 text-center text-xs text-fg-muted">{emptyMessage}</div>
           ) : (
-            flat.map(section => (
-              <div key={section.group}>
-                <div className="px-2 py-1 text-2xs font-medium tracking-wide text-fg-subtle uppercase">
-                  {labels[section.group]}
-                </div>
-                {section.items.map(command => {
-                  const index = rows.indexOf(command);
-                  const active = index === activeIndex;
-                  const Icon = command.icon;
-                  return (
-                    <button
-                      key={command.id}
-                      type="button"
-                      role="option"
-                      aria-selected={active}
-                      data-active={active}
-                      disabled={command.disabled}
-                      title={command.disabled ? command.disabledReason : undefined}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => void run(command)}
-                      className={cn(
-                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-fg',
-                        'disabled:opacity-50',
-                        active && 'bg-hover',
-                      )}
-                    >
-                      {Icon ? (
-                        <Icon aria-hidden strokeWidth={1.75} size={14} className="shrink-0 text-fg-muted" />
-                      ) : null}
-                      <span className="min-w-0 flex-1 truncate">{command.title}</span>
-                      {command.hint ? (
-                        <span className="min-w-0 truncate text-xs text-fg-subtle">{command.hint}</span>
-                      ) : null}
-                      {command.shortcut ? <Kbd>{command.shortcut}</Kbd> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ))
+            <>
+            <div aria-hidden style={{ height: virtual.before }} />
+            {entries.slice(virtual.start, virtual.end).map(entry => {
+              const command = entry.command;
+              if (!command) return <div key={`group:${entry.group}`} className="flex h-[30px] items-center px-2 text-2xs font-medium tracking-wide text-fg-subtle uppercase">{labels[entry.group]}</div>;
+              const active = entry.index === activeIndex;
+              const Icon = command.icon;
+              return (
+                <button
+                  key={command.id}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  aria-posinset={entry.index + 1}
+                  aria-setsize={rows.length}
+                  data-active={active}
+                  disabled={command.disabled}
+                  title={command.disabled ? command.disabledReason : undefined}
+                  onMouseEnter={() => setActiveIndex(entry.index)}
+                  onClick={() => void run(command)}
+                  className={cn('flex h-[30px] w-full items-center gap-2 rounded-md px-2 text-left text-sm text-fg', 'disabled:opacity-50', active && 'bg-hover')}
+                >
+                  {Icon ? <Icon aria-hidden strokeWidth={1.75} size={14} className="shrink-0 text-fg-muted" /> : null}
+                  <span className="min-w-0 flex-1 truncate">{command.title}</span>
+                  {command.hint ? <span className="min-w-0 truncate text-xs text-fg-subtle">{command.hint}</span> : null}
+                  {command.shortcut ? <Kbd>{command.shortcut}</Kbd> : null}
+                </button>
+              );
+            })}
+            <div aria-hidden style={{ height: virtual.after }} />
+            </>
           )}
         </div>
         <div className="flex items-center gap-3 border-t border-border px-3 py-1.5 text-2xs text-fg-subtle">

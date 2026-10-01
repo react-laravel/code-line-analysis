@@ -3,6 +3,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
+    #[error("Scan cancelled")]
+    Cancelled,
     #[error("{0}")]
     Msg(String),
     #[error(transparent)]

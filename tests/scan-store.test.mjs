@@ -10,6 +10,7 @@ let onProgress;
 let resolveScan;
 let rejectScan;
 let cancelCalls;
+let scans;
 const timers = new Map();
 let timerId = 0;
 
@@ -27,9 +28,13 @@ before(async () => {
           onProgress = callback;
           return () => { onProgress = null; };
         },
-        run: () => new Promise((resolve, reject) => {
-          resolveScan = resolve;
-          rejectScan = reject;
+        run: (folderId, opts) => new Promise((resolve, reject) => {
+          const scan = { folderId, requestId: opts.requestId, terminal: false, settled: false };
+          scan.resolve = value => { scan.settled = true; resolve(value); };
+          scan.reject = error => { scan.settled = true; reject(error); };
+          resolveScan = scan.resolve;
+          rejectScan = scan.reject;
+          scans.push(scan);
         }),
         cancel: async () => { cancelCalls += 1; },
       },
@@ -47,10 +52,11 @@ before(async () => {
 
 beforeEach(() => {
   useScanStore.getState().reset();
-  useScanStore.setState({ outcomeToken: 0, lastScanAt: {}, folderId: null });
+  useScanStore.setState({ outcomeToken: 0, lastScanAt: {}, folderId: null, queuedFolderIds: [] });
   useAppStore.setState({ revision: 0 });
   timers.clear();
   cancelCalls = 0;
+  scans = [];
   useScanStore.getState().listen();
 });
 
@@ -59,8 +65,10 @@ after(async () => {
   delete globalThis.window;
 });
 
-function progress(phase, folderId = 1) {
-  onProgress({ folderId, phase, total: 12, done: phase === 'done' ? 12 : 4 });
+function progress(phase, folderId = 1, outcome) {
+  const scan = scans.find(scan => scan.folderId === folderId && !scan.terminal && !scan.settled);
+  if (scan && phase === 'done') scan.terminal = true;
+  onProgress({ folderId, requestId: scan?.requestId, phase, outcome, total: 12, done: phase === 'done' ? 12 : 4 });
 }
 
 test('a watcher scan exits the busy state and refreshes results without a run promise', () => {
@@ -120,18 +128,79 @@ test('manual failures remain errors after a terminal progress event', async () =
   assert.equal(useAppStore.getState().revision, 0);
 });
 
-test('manual cancellation remains cancelled when the command resolves', async () => {
+test('cancellation racing with a successful commit still refreshes committed results', async () => {
   const pending = useScanStore.getState().run(1);
   progress('parsing');
   useScanStore.getState().cancel();
   progress('done');
   resolveScan({ totalFiles: 10 });
   await pending;
-  assert.equal(useScanStore.getState().status, 'cancelled');
-  assert.deepEqual(useScanStore.getState().lastScanAt, {});
+  assert.equal(useScanStore.getState().status, 'done');
+  assert.ok(useScanStore.getState().lastScanAt[1] > 0);
+  assert.equal(useAppStore.getState().revision, 1);
   progress('walking');
   progress('done');
   assert.equal(useScanStore.getState().status, 'idle');
+});
+
+test('a backend cancellation reply remains cancelled without refreshing rolled-back data', async () => {
+  const pending = useScanStore.getState().run(1);
+  progress('persisting');
+  useScanStore.getState().cancel();
+  progress('done', 1, 'cancelled');
+  rejectScan(new Error('Scan cancelled'));
+  await pending;
+  assert.equal(useScanStore.getState().status, 'cancelled');
+  assert.deepEqual(useScanStore.getState().lastScanAt, {});
+  assert.equal(useAppStore.getState().revision, 0);
+});
+
+test('background success records scan time even for an empty repository', () => {
+  onProgress({ folderId: 1, phase: 'done', outcome: 'success', total: 0, done: 0 });
+  assert.ok(useScanStore.getState().lastScanAt[1] > 0);
+  assert.equal(useAppStore.getState().revision, 1);
+});
+
+test('explicit background errors stop scanning without publishing success or refreshing data', () => {
+  progress('walking');
+  onProgress({ folderId: 1, phase: 'done', outcome: 'error', total: 0, done: 0 });
+  assert.equal(useScanStore.getState().status, 'error');
+  assert.deepEqual(useScanStore.getState().lastScanAt, {});
+  assert.equal(useAppStore.getState().revision, 0);
+});
+
+test('bulk repository requests all enter the backend queue and each refreshes once', async () => {
+  const pending = [1, 2, 3].map(id => useScanStore.getState().run(id));
+  assert.deepEqual(scans.map(scan => scan.folderId), [1, 2, 3]);
+  assert.deepEqual(useScanStore.getState().queuedFolderIds, [1, 2, 3]);
+  for (let index = 0; index < scans.length; index += 1) {
+    const { folderId, resolve } = scans[index];
+    progress('parsing', folderId);
+    progress('done', folderId, 'success');
+    resolve({ totalFiles: 12 });
+    await pending[index];
+    assert.equal(useAppStore.getState().revision, index + 1);
+    assert.ok(useScanStore.getState().lastScanAt[folderId] > 0);
+    assert.deepEqual(useScanStore.getState().queuedFolderIds, [1, 2, 3].slice(index + 1));
+  }
+  assert.equal(useScanStore.getState().status, 'done');
+});
+
+test('a queued repeat for the same folder keeps running when the earlier reply settles', async () => {
+  const first = useScanStore.getState().run(1);
+  const second = useScanStore.getState().run(1);
+  progress('parsing');
+  progress('done', 1, 'success');
+  progress('walking');
+  scans[0].resolve({ totalFiles: 12 });
+  await first;
+  assert.equal(useScanStore.getState().status, 'running');
+  assert.equal(useScanStore.getState().progress.phase, 'walking');
+  progress('done', 1, 'success');
+  scans[1].resolve({ totalFiles: 12 });
+  await second;
+  assert.equal(useAppStore.getState().revision, 2);
+  assert.equal(useScanStore.getState().status, 'done');
 });
 
 test('a background scan finishing ahead of a queued manual scan keeps the manual scan pending', async () => {
@@ -146,6 +215,21 @@ test('a background scan finishing ahead of a queued manual scan keeps the manual
   await pending;
   assert.equal(useScanStore.getState().status, 'done');
   assert.equal(useScanStore.getState().folderId, 2);
+  assert.equal(useAppStore.getState().revision, 2);
+});
+
+test('background completion for the same repository cannot settle or steal a queued manual request', async () => {
+  const pending = useScanStore.getState().run(1);
+  onProgress({ folderId: 1, phase: 'walking', total: 12, done: 0 });
+  onProgress({ folderId: 1, phase: 'done', outcome: 'success', total: 12, done: 12 });
+  assert.equal(useScanStore.getState().status, 'queued');
+  assert.deepEqual(useScanStore.getState().queuedFolderIds, [1]);
+  assert.equal(useAppStore.getState().revision, 1);
+  progress('parsing');
+  progress('done', 1, 'success');
+  scans[0].resolve({ totalFiles: 12 });
+  await pending;
+  assert.equal(useScanStore.getState().status, 'done');
   assert.equal(useAppStore.getState().revision, 2);
 });
 

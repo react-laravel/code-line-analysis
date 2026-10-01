@@ -21,6 +21,8 @@ pub struct FolderRules {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanProgress {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     pub folder_id: i64,
     pub phase: String,
     pub total: usize,
@@ -29,11 +31,14 @@ pub struct ScanProgress {
     pub current: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_hits: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanOptions {
+    pub request_id: Option<String>,
     pub full: Option<bool>,
     pub detect_duplicates: Option<bool>,
     pub duplicate_min_lines: Option<i64>,
@@ -197,7 +202,6 @@ pub struct TreeNodeContextMenuRequest {
     pub y: Option<f64>,
     pub labels: TreeNodeContextMenuLabels,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -53,6 +53,12 @@ export default function EditorTab({ folder }: Props) {
   const currentFileKey = folder && decodedPath ? tabId(folder.id, decodedPath) : '';
 
   const setDraft = useTabsStore(state => state.setDraft);
+  const markSaved = useTabsStore(state => state.markSaved);
+  const readOnly = useTabsStore(state => folder ? state.fileTabsByFolder[folder.id]
+    ?.find(tab => tab.id === currentFileKey)?.readOnly ?? true : true);
+  const setReadOnly = useCallback((value: boolean) => {
+    if (currentFileKey) useTabsStore.getState().setReadOnly(currentFileKey, value);
+  }, [currentFileKey]);
   const requestClose = useTabsStore(state => state.requestClose);
 
   const [content, setContent] = useState<string>('');
@@ -60,7 +66,6 @@ export default function EditorTab({ folder }: Props) {
   const [meta, setMeta] = useState<FileMeta | null>(null);
   const [git, setGit] = useState<GitFileInfo | null>(null);
   const [fileTags, setFileTags] = useState<TagRow[]>([]);
-  const [readOnly, setReadOnly] = useState(true);
   const [savingCountsByFile, setSavingCountsByFile] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -91,7 +96,9 @@ export default function EditorTab({ folder }: Props) {
   useEffect(() => {
     if (!folder || !decodedPath) return;
     const requestKey = currentFileKey;
-    const requestVersion = fileVersionRef.current;
+    const requestVersion = ++fileVersionRef.current;
+    const gitRequestId = crypto.randomUUID();
+    let gitPending = false;
     setLoadError(null);
     setMeta(null);
     setGit(null);
@@ -108,17 +115,17 @@ export default function EditorTab({ folder }: Props) {
       setContent(draft ?? content);
       setOriginal(content);
       setMeta(meta);
-      setLoadedPath(decodedPath);
+      setLoadedPath(requestKey);
+      // Start blame only after the backend has accepted the file's size/type.
+      gitPending = true;
+      void window.api.git.fileInfo(folder.id, decodedPath, gitRequestId).then(nextGit => {
+        if (isCurrentFileRequest(requestKey, requestVersion)) setGit(nextGit);
+      }).catch(() => {
+        if (isCurrentFileRequest(requestKey, requestVersion)) setGit(null);
+      }).finally(() => { gitPending = false; });
     }).catch(e => {
       if (!isCurrentFileRequest(requestKey, requestVersion)) return;
       setLoadError(String(e));
-    });
-    window.api.git.fileInfo(folder.id, decodedPath).then((nextGit) => {
-      if (!isCurrentFileRequest(requestKey, requestVersion)) return;
-      setGit(nextGit);
-    }).catch(() => {
-      if (!isCurrentFileRequest(requestKey, requestVersion)) return;
-      setGit(null);
     });
     window.api.stats.fileTags(folder.id, decodedPath).then((nextTags) => {
       if (!isCurrentFileRequest(requestKey, requestVersion)) return;
@@ -127,6 +134,10 @@ export default function EditorTab({ folder }: Props) {
       if (!isCurrentFileRequest(requestKey, requestVersion)) return;
       setFileTags([]);
     });
+    return () => {
+      if (fileVersionRef.current === requestVersion) fileVersionRef.current += 1;
+      if (gitPending) void window.api.git.cancelFileInfo(gitRequestId).catch(() => undefined);
+    };
   }, [currentFileKey, decodedPath, folder?.id, reloadToken]);
 
   useEffect(() => {
@@ -142,7 +153,7 @@ export default function EditorTab({ folder }: Props) {
     });
   }, [currentFileKey, decodedPath, folder?.id, scanRevision]);
 
-  const loaded = Boolean(loadedPath) && loadedPath === decodedPath;
+  const loaded = Boolean(loadedPath) && loadedPath === currentFileKey;
   const dirty = loaded && content !== original;
   const { cursor, onMount, revealTargetLine } = useEditorNavigation({
     loaded,
@@ -156,8 +167,8 @@ export default function EditorTab({ folder }: Props) {
   // draft the load effect is about to read.
   useEffect(() => {
     if (!loaded || !currentFileKey) return;
-    setDraft(currentFileKey, dirty ? content : null);
-  }, [content, currentFileKey, dirty, loaded, setDraft]);
+    setDraft(currentFileKey, dirty ? content : null, meta?.hash);
+  }, [content, currentFileKey, dirty, loaded, meta?.hash, setDraft]);
 
   function beforeMount(monacoInstance: typeof import('monaco-editor')) {
     monacoInstance.editor.setTheme(theme === 'light' ? 'vs' : 'vs-dark');
@@ -166,20 +177,24 @@ export default function EditorTab({ folder }: Props) {
   const saving = (savingCountsByFile[currentFileKey] ?? 0) > 0;
 
   const save = useCallback(async () => {
-    if (!folder) return;
+    if (!folder || !meta || !loaded || saving) return;
     const requestKey = currentFileKey;
     const requestVersion = fileVersionRef.current;
+    const expectedHash = useTabsStore.getState().fileTabsByFolder[folder.id]
+      ?.find(tab => tab.id === requestKey)?.originalHash ?? meta.hash;
     setSavingCountsByFile(current => ({
       ...current,
       [requestKey]: (current[requestKey] ?? 0) + 1,
     }));
     try {
-      const newMeta = await window.api.file.write(folder.id, decodedPath, content);
-      if (!isCurrentFileRequest(requestKey, requestVersion)) return;
-      const nextTags = await window.api.stats.fileTags(folder.id, decodedPath);
+      const newMeta = await window.api.file.write(folder.id, decodedPath, content, expectedHash);
+      markSaved(requestKey, content, newMeta.hash);
+      useAppStore.getState().bumpRevision();
       if (!isCurrentFileRequest(requestKey, requestVersion)) return;
       setMeta(newMeta);
       setOriginal(content);
+      const nextTags = await window.api.stats.fileTags(folder.id, decodedPath);
+      if (!isCurrentFileRequest(requestKey, requestVersion)) return;
       setFileTags(nextTags);
     } catch (e) {
       // A failed *save* is an app-level error, not a region-level one
@@ -196,7 +211,7 @@ export default function EditorTab({ folder }: Props) {
         return rest;
       });
     }
-  }, [content, currentFileKey, decodedPath, folder, t]);
+  }, [content, currentFileKey, decodedPath, folder, loaded, markSaved, meta, saving, t]);
 
   // `⌘S` — the app had no global shortcuts at all (DESIGN-SYSTEM §8.1). While
   // read-only it is not a dead key: it says how to make it work.
@@ -224,7 +239,7 @@ export default function EditorTab({ folder }: Props) {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [dirty, readOnly, save, saving, t]);
+  }, [dirty, readOnly, save, saving, setReadOnly, t]);
 
   const overflow: MenuItem[] = useMemo(() => [
     {
@@ -273,7 +288,7 @@ export default function EditorTab({ folder }: Props) {
       group: 'action' as const,
       title: readOnly ? t('editor.enableEditMode') : t('editor.editMode'),
       hint: decodedPath,
-      perform: () => setReadOnly(current => !current),
+      perform: () => setReadOnly(!readOnly),
     },
     ...commandsFromMenu('editor-tab', overflow, { hint: decodedPath }),
   ]);
@@ -316,7 +331,7 @@ export default function EditorTab({ folder }: Props) {
             <Editor
               height="100%"
               theme={theme === 'light' ? 'vs' : 'vs-dark'}
-              path={decodedPath}
+              path={currentFileKey}
               language={editorLanguageForPath(decodedPath)}
               loading={t('editor.loadingAssets')}
               value={content}
@@ -326,9 +341,10 @@ export default function EditorTab({ folder }: Props) {
               options={{
                 readOnly,
                 glyphMargin: true,
-                minimap: { enabled: true },
+                minimap: { enabled: (meta?.size ?? 0) < 512 * 1024 },
                 fontSize: 13,
-                wordWrap: 'on',
+                wordWrap: (meta?.size ?? 0) < 512 * 1024 ? 'on' : 'off',
+                largeFileOptimizations: true,
                 automaticLayout: true,
               }}
             />

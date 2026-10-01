@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { SlidersHorizontal } from 'lucide-react';
 import type { TopFile } from '../../../shared/api';
 import {
   Badge,
@@ -7,6 +8,7 @@ import {
   DataTable,
   EmptyState,
   Input,
+  Popover,
   Select,
   type Column,
   type SortState,
@@ -15,6 +17,7 @@ import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useI18n } from '../../i18n';
+import { loadFileIndex } from '../../lib/file-index';
 import { fileExt } from '../../lib/path';
 import { useRevision } from '../../store/app-store';
 import { useScanStore } from '../../store/scan-store';
@@ -23,7 +26,6 @@ import { sortRows, type CodeLens, type LensArgs } from './lens';
 type SortKey = 'relPath' | 'total' | 'code' | 'size' | 'lang' | 'ext' | 'lastCommitDate';
 
 const NO_EXTENSION = '(none)';
-const MAX_VISIBLE_ROWS = 1000;
 
 interface FileRowView extends TopFile {
   ext: string;
@@ -47,7 +49,7 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
   const [sort, setSort] = useState<SortState | null>({ columnId: 'total', direction: 'desc' });
 
   const folderId = folder.id;
-  const loadFiles = useCallback(() => window.api.stats.topFiles(folderId, 5000), [folderId]);
+  const loadFiles = useCallback(() => loadFileIndex(folderId, true), [folderId]);
   const { data: files } = useAsyncResource<TopFile[]>({
     resourceKey: folderId,
     refreshToken: revision,
@@ -146,9 +148,16 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
 
   const filters = (
     <>
+      <Popover
+        role="dialog"
+        aria-label={t('files.filters')}
+        className="w-80 max-w-[calc(100vw-24px)] p-3"
+        trigger={<Button size="sm" icon={SlidersHorizontal}>{t('files.filters')}</Button>}
+      >
+      <div className="grid grid-cols-2 gap-3">
+      <label className="col-span-2 grid gap-1 text-xs text-fg-muted">{t('common.lang')}
       <Select
         size="sm"
-        wrapperClassName="w-44"
         aria-label={t('common.lang')}
         value={languageFilter}
         onChange={event => setLanguageFilter(event.target.value)}
@@ -157,9 +166,10 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
           ...languages.map(lang => ({ value: lang, label: lang })),
         ]}
       />
+      </label>
+      <label className="col-span-2 grid gap-1 text-xs text-fg-muted">{t('files.ext')}
       <Select
         size="sm"
-        wrapperClassName="w-44"
         aria-label={t('files.ext')}
         value={extensionFilter}
         onChange={event => setExtensionFilter(event.target.value)}
@@ -168,9 +178,10 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
           ...extensions.map(ext => ({ value: ext, label: ext === NO_EXTENSION ? t('files.noExtension') : ext })),
         ]}
       />
+      </label>
+      <label className="grid gap-1 text-xs text-fg-muted">{t('files.minLines')}
       <Input
         size="sm"
-        wrapperClassName="w-28"
         type="number"
         min={0}
         aria-label={t('files.minLines')}
@@ -178,9 +189,10 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
         value={minLines}
         onChange={event => setMinLines(event.target.value)}
       />
+      </label>
+      <label className="grid gap-1 text-xs text-fg-muted">{t('files.maxLines')}
       <Input
         size="sm"
-        wrapperClassName="w-28"
         type="number"
         min={0}
         aria-label={t('files.maxLines')}
@@ -188,10 +200,15 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
         value={maxLines}
         onChange={event => setMaxLines(event.target.value)}
       />
-      <Button size="sm" onClick={clearFilters} disabled={activeFilterCount === 0}>
+      </label>
+      <Button size="sm" className="col-span-2" onClick={clearFilters} disabled={activeFilterCount === 0}>
         {t('files.clearFilters')}
       </Button>
-      <Badge tone={activeFilterCount > 0 ? 'accent' : 'neutral'}>{activeFilterLabel}</Badge>
+      </div>
+      </Popover>
+      {languageFilter !== 'ALL' ? <Badge>{languageFilter}</Badge> : null}
+      {extensionFilter !== 'ALL' ? <Badge>{extensionFilter === NO_EXTENSION ? t('files.noExtension') : extensionFilter}</Badge> : null}
+      {minLines || maxLines ? <Badge>{minLines || '0'}–{maxLines || '∞'} {t('common.lines')}</Badge> : null}
     </>
   );
 
@@ -200,7 +217,8 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
       <DataTable
         aria-label={t('files.title')}
         columns={columns}
-        rows={filtered.slice(0, MAX_VISIBLE_ROWS)}
+        rows={filtered}
+        virtual
         rowKey={file => file.relPath}
         sort={sort}
         onSortChange={setSort}
@@ -218,11 +236,7 @@ export function useFilesLens({ folder, query, clearQuery, active }: LensArgs): C
           />
         )}
       />
-      {filtered.length > MAX_VISIBLE_ROWS ? (
-        <p className="mt-2 mb-0 text-xs text-fg-muted">
-          {t('files.showingFirst', { count: filtered.length.toLocaleString(locale) })}
-        </p>
-      ) : null}
+
     </>
   );
 

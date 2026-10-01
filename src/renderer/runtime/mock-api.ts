@@ -25,6 +25,7 @@ import type {
   GitFileInfo,
   HeatmapBucket,
   ScanProgress,
+  ScanOptions,
   TagRow,
   TopFile,
   TopFileSortKey,
@@ -73,6 +74,7 @@ const contentOverrides = new Map<string, string>();
 const mtimeOverrides = new Map<string, number>();
 
 let globalRules: FolderRules = { whitelist: [], blacklist: [...DEFAULT_BLACKLIST] };
+let detectDuplicatesOnScan = true;
 let nextFolderId = Math.max(...folders.map(folder => folder.id)) + 1;
 
 function emptyRules(): FolderRules {
@@ -425,10 +427,11 @@ const progressListeners = new Set<(progress: ScanProgress) => void>();
 
 interface ActiveScan {
   timer: number;
-  finish: () => void;
+  finish: (cancelled: boolean) => void;
 }
 
 let activeScan: ActiveScan | null = null;
+let scanQueue: Promise<void> = Promise.resolve();
 
 function emitProgress(progress: ScanProgress): void {
   for (const listener of [...progressListeners]) listener(progress);
@@ -455,24 +458,24 @@ function buildScanSteps(folderId: number, files: ResolvedFile[]): ScanProgress[]
   return steps;
 }
 
-function stopActiveScan(): void {
+function stopActiveScan(cancelled = false): void {
   if (!activeScan) return;
   const { timer, finish } = activeScan;
   activeScan = null;
   window.clearInterval(timer);
-  finish();
+  finish(cancelled);
 }
 
-function runScan(folderId: number): Promise<FolderStats> {
-  stopActiveScan();
+function performMockScan(folderId: number, opts?: ScanOptions): Promise<FolderStats> {
   const files = filesFor(folderId);
   const steps = buildScanSteps(folderId, files);
   const total = Math.max(1, files.length);
 
-  return new Promise<FolderStats>(resolve => {
+  return new Promise<FolderStats>((resolve, reject) => {
     let index = 0;
-    const settle = () => {
-      emitProgress({ folderId, phase: 'done', total, done: total });
+    const settle = (cancelled: boolean) => {
+      emitProgress({ folderId, requestId: opts?.requestId, phase: 'done', outcome: cancelled ? 'cancelled' : 'success', total, done: total });
+      if (cancelled) { reject(new Error('Scan cancelled')); return; }
       resolve(summaryFor(folderId));
     };
 
@@ -483,11 +486,17 @@ function runScan(folderId: number): Promise<FolderStats> {
         stopActiveScan();
         return;
       }
-      emitProgress(step);
+      emitProgress({ ...step, requestId: opts?.requestId });
     }, SCAN_TICK_MS);
 
     activeScan = { timer, finish: settle };
   });
+}
+
+function runScan(folderId: number, opts?: ScanOptions): Promise<FolderStats> {
+  const next = scanQueue.then(() => performMockScan(folderId, opts));
+  scanQueue = next.then(() => undefined, () => undefined);
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -559,6 +568,7 @@ export function createMockApi(): Api {
       getDuplicateMinLines: async id => duplicateMinLinesByFolderId.get(id) ?? DEFAULT_DUPLICATE_LINES,
       setDuplicateMinLines: async (id, count) => {
         duplicateMinLinesByFolderId.set(id, count);
+        void runScan(id).catch(() => undefined);
       },
       getDuplicateRules: async id => ({ ...(duplicateRulesByFolderId.get(id) ?? emptyRules()) }),
       setDuplicateRules: async (id, rules) => {
@@ -575,10 +585,10 @@ export function createMockApi(): Api {
       run: (folderId, opts) => {
         if (opts?.duplicateMinLines != null) duplicateMinLinesByFolderId.set(folderId, opts.duplicateMinLines);
         if (opts?.duplicateRules) duplicateRulesByFolderId.set(folderId, opts.duplicateRules);
-        return runScan(folderId);
+        return runScan(folderId, opts);
       },
       cancel: async () => {
-        stopActiveScan();
+        stopActiveScan(true);
       },
       onProgress: callback => {
         progressListeners.add(callback);
@@ -588,6 +598,8 @@ export function createMockApi(): Api {
       },
     },
     settings: {
+      getDetectDuplicates: async () => detectDuplicatesOnScan,
+      setDetectDuplicates: async enabled => { detectDuplicatesOnScan = enabled; },
       getGlobalRules: async () => ({ ...globalRules }),
       setGlobalRules: async rules => {
         globalRules = {
@@ -599,7 +611,23 @@ export function createMockApi(): Api {
     },
     stats: {
       summary: async folderId => summaryFor(folderId),
-      tree: async folderId => treeFor(folderId),
+      tree: async (folderId, expandedPaths) => {
+        const tree = treeFor(folderId);
+        if (expandedPaths) {
+          const expanded = new Set(expandedPaths);
+          const trim = (node: DirNode): void => {
+            node.children = node.children?.filter(child => child.isDir || node.path === '' || expanded.has(node.path));
+            node.children?.filter(child => child.isDir).forEach(trim);
+          };
+          trim(tree);
+        }
+        return tree;
+      },
+      filesPage: async (folderId, offset = 0, limit = 1000) => {
+        const rows = topFilesFor(folderId).sort((a,b) => a.relPath.localeCompare(b.relPath));
+        return { rows: rows.slice(offset, offset + limit), total: rows.length, revision: 0 };
+      },
+      fileDates: async folderId => ({ dates: Object.fromEntries(topFilesFor(folderId).filter(row => row.lastCommitDate != null).map(row => [row.relPath, row.lastCommitDate!])), revision: 0 }),
       topFiles: async (folderId, limit, sortBy) => topFilesFor(folderId, limit, sortBy),
       topFunctions: async (folderId, limit) => topFunctionsFor(folderId, limit),
       apiRoutes: async folderId => buildApiRouteOverview(sourceFilesFor(folderId)),
@@ -623,9 +651,10 @@ export function createMockApi(): Api {
         if (!file) throw new Error(`File not found: ${relPath}`);
         return { content: file.content, meta: metaOf(file) };
       },
-      write: async (folderId, relPath, content) => {
+      write: async (folderId, relPath, content, expectedHash) => {
         const file = findFile(folderId, relPath);
         if (!file) throw new Error(`File not found: ${relPath}`);
+        if (metaOf(file).hash !== expectedHash) throw new Error("File changed on disk; reload before saving");
         const key = `${folderId}:${file.relPath}`;
         contentOverrides.set(key, content);
         mtimeOverrides.set(key, Date.now());
@@ -639,6 +668,7 @@ export function createMockApi(): Api {
       },
     },
     git: {
+      cancelFileInfo: async () => {},
       fileInfo: async (folderId, relPath) => gitFileInfoFor(folderId, relPath),
       repoInfo: async folderId => {
         const info = projectFor(folderId).repoInfo;

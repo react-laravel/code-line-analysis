@@ -44,15 +44,22 @@ pub struct ParsedModel {
 fn php_namespace(content: &str) -> String {
     static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*namespace\s+([^;]+);").unwrap());
     RE.captures(content)
-        .map(|c| c.get(1).unwrap().as_str().trim().trim_end_matches('\\').to_string())
+        .map(|c| {
+            c.get(1)
+                .unwrap()
+                .as_str()
+                .trim()
+                .trim_end_matches('\\')
+                .to_string()
+        })
         .unwrap_or_default()
 }
 
 fn expand_php_use_statement(statement: &str) -> Vec<String> {
-    let normalized = Regex::new(r"\s+")
-        .unwrap()
-        .replace_all(statement.trim(), " ")
-        .to_string();
+    static WHITESPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+    static ALIAS: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"\s+as\s+[A-Za-z_][A-Za-z0-9_]*$").unwrap());
+    let normalized = WHITESPACE.replace_all(statement.trim(), " ").to_string();
     if normalized.is_empty()
         || normalized.starts_with("function ")
         || normalized.starts_with("const ")
@@ -72,14 +79,7 @@ fn expand_php_use_statement(statement: &str) -> Vec<String> {
                 .trim_end_matches('\\');
             return normalized[group_start + 1..group_end.unwrap()]
                 .split(',')
-                .map(|part| {
-                    let alias_re =
-                        Regex::new(r"\s+as\s+[A-Za-z_][A-Za-z0-9_]*$").unwrap();
-                    format!(
-                        "{prefix}\\{}",
-                        alias_re.replace(part.trim(), "").trim()
-                    )
-                })
+                .map(|part| format!("{prefix}\\{}", ALIAS.replace(part.trim(), "").trim()))
                 .filter(|s| !s.is_empty())
                 .collect();
         }
@@ -124,8 +124,9 @@ fn php_uses(content: &str) -> HashMap<String, String> {
 }
 
 fn model_class_name(content: &str) -> Option<(String, Option<String>)> {
-    static RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:extends\s+([^\s{]+))?").unwrap());
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:extends\s+([^\s{]+))?").unwrap()
+    });
     RE.captures(content).map(|c| {
         (
             c.get(1).unwrap().as_str().to_string(),
@@ -135,6 +136,8 @@ fn model_class_name(content: &str) -> Option<(String, Option<String>)> {
 }
 
 fn is_model_file(rel_path: &str, class_info: Option<&(String, Option<String>)>) -> bool {
+    static MODEL_BASE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?:^|\\)(Model|Authenticatable)$").unwrap());
     let Some((_, extends_name)) = class_info else {
         return false;
     };
@@ -149,7 +152,7 @@ fn is_model_file(rel_path: &str, class_info: Option<&(String, Option<String>)>) 
     }
     extends_name
         .as_deref()
-        .map(|e| Regex::new(r"(?:^|\\)(Model|Authenticatable)$").unwrap().is_match(e))
+        .map(|e| MODEL_BASE.is_match(e))
         .unwrap_or(false)
 }
 
@@ -250,12 +253,16 @@ fn parse_relationship_args(
                     .or_else(|| Some("id".into())),
                 pivot_table: None,
                 morph_name: Some(morph_name),
-                morph_type_column: read_string_literal(parts.get(1).map(|s| s.as_str()).unwrap_or(""))
-                    .or_else(|| Some(default_morph_type_column(
+                morph_type_column: read_string_literal(
+                    parts.get(1).map(|s| s.as_str()).unwrap_or(""),
+                )
+                .or_else(|| {
+                    Some(default_morph_type_column(
                         read_string_literal(parts.first().map(|s| s.as_str()).unwrap_or(""))
                             .unwrap_or_else(|| method_name.to_string())
                             .as_str(),
-                    ))),
+                    ))
+                }),
             })
         }
         "morphOne" | "morphMany" => {
@@ -272,8 +279,10 @@ fn parse_relationship_args(
                     .or_else(|| Some("id".into())),
                 pivot_table: None,
                 morph_name: Some(morph_name.clone()),
-                morph_type_column: read_string_literal(parts.get(2).map(|s| s.as_str()).unwrap_or(""))
-                    .or_else(|| Some(default_morph_type_column(&morph_name))),
+                morph_type_column: read_string_literal(
+                    parts.get(2).map(|s| s.as_str()).unwrap_or(""),
+                )
+                .or_else(|| Some(default_morph_type_column(&morph_name))),
             })
         }
         "belongsToMany" => {
@@ -285,7 +294,11 @@ fn parse_relationship_args(
                 source_column: read_string_literal(parts.get(2).map(|s| s.as_str()).unwrap_or(""))
                     .or_else(|| Some(default_foreign_key_for_table(source_table))),
                 target_column: read_string_literal(parts.get(3).map(|s| s.as_str()).unwrap_or(""))
-                    .or_else(|| target_table.as_ref().map(|t| default_foreign_key_for_table(t))),
+                    .or_else(|| {
+                        target_table
+                            .as_ref()
+                            .map(|t| default_foreign_key_for_table(t))
+                    }),
                 pivot_table: read_string_literal(parts.get(1).map(|s| s.as_str()).unwrap_or(""))
                     .or_else(|| {
                         target_table
@@ -382,9 +395,8 @@ fn parse_model_relationships(
 }
 
 pub fn parse_models(files: &[SourceFile]) -> Vec<ParsedModel> {
-    static TABLE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"protected\s+\$table\s*=\s*['"]([^'"]+)['"]\s*;"#).unwrap()
-    });
+    static TABLE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"protected\s+\$table\s*=\s*['"]([^'"]+)['"]\s*;"#).unwrap());
 
     let mut models = Vec::new();
     for file in files {
@@ -473,19 +485,25 @@ fn format_model_relation_label(
                 .pivot_table
                 .as_deref()
                 .unwrap_or(&default_pivot_table_name(source_table, target_table)),
-            format_bare_columns(&[relation.source_column.clone(), relation.target_column.clone()])
+            format_bare_columns(&[
+                relation.source_column.clone(),
+                relation.target_column.clone()
+            ])
         ),
         "morphToMany" | "morphedByMany" => format!(
             "{}: {} <-> {} via {} ({})",
             relation.kind,
             source_table,
             target_table,
-            relation.pivot_table.as_deref().unwrap_or(&default_morph_pivot_table(
-                relation
-                    .morph_name
-                    .as_deref()
-                    .unwrap_or(&relation.method_name)
-            )),
+            relation
+                .pivot_table
+                .as_deref()
+                .unwrap_or(&default_morph_pivot_table(
+                    relation
+                        .morph_name
+                        .as_deref()
+                        .unwrap_or(&relation.method_name)
+                )),
             format_bare_columns(&[
                 relation.morph_type_column.clone(),
                 relation.source_column.clone(),

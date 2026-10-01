@@ -57,6 +57,7 @@ export default function TitleBar() {
       size="sm"
       icon={RefreshCw}
       disabled={!canScan || busy}
+      aria-label={t('app.rescan')}
       menuLabel={t('app.rescanOptions')}
       onClick={() => actions.rescan()}
       items={[
@@ -74,7 +75,7 @@ export default function TitleBar() {
         },
       ]}
     >
-      {t('app.rescan')}
+      <span className="hidden xl:inline">{t('app.rescan')}</span>
     </SplitButton>
   );
 
@@ -96,12 +97,12 @@ export default function TitleBar() {
       <FolderSwitcher />
       <div data-tauri-drag-region="deep" className="flex h-full min-w-0 flex-1 items-center gap-2 pl-1">
         {folder ? (
-          <span className="truncate font-mono text-xs text-fg-muted" title={folder.rootPath}>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted" title={folder.rootPath}>
             {folder.rootPath}
           </span>
         ) : null}
         {folder ? (
-          <Badge size="xs" tone={lastScanAt ? 'neutral' : 'warning'} dot className="shrink-0">
+          <Badge size="xs" tone={lastScanAt ? 'neutral' : 'warning'} dot className="hidden shrink-0 xl:inline-flex">
             {lastScanAt ? t('app.scannedAgo', { ago: formatAgo(lastScanAt, locale) }) : t('app.neverScanned')}
           </Badge>
         ) : null}

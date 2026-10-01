@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::collections::HashMap;
 
 pub fn normalize_rel_path(rel_path: &str) -> String {
     rel_path
@@ -12,9 +13,10 @@ pub fn normalize_rel_path(rel_path: &str) -> String {
 }
 
 pub fn snake_case(value: &str) -> String {
-    let re1 = Regex::new(r"([a-z0-9])([A-Z])").unwrap();
-    let re2 = Regex::new(r"[-\s]+").unwrap();
-    re2.replace_all(&re1.replace_all(value, "${1}_${2}"), "_")
+    static CAMEL: Lazy<Regex> = Lazy::new(|| Regex::new(r"([a-z0-9])([A-Z])").unwrap());
+    static SEPARATORS: Lazy<Regex> = Lazy::new(|| Regex::new(r"[-\s]+").unwrap());
+    SEPARATORS
+        .replace_all(&CAMEL.replace_all(value, "${1}_${2}"), "_")
         .to_lowercase()
 }
 
@@ -31,9 +33,11 @@ pub fn singular(value: &str) -> String {
 }
 
 pub fn plural(value: &str) -> String {
-    if value.ends_with('y') && !Regex::new(r"[aeiou]y$").unwrap().is_match(value) {
+    static VOWEL_Y: Lazy<Regex> = Lazy::new(|| Regex::new(r"[aeiou]y$").unwrap());
+    static SIBILANT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(s|x|z|ch|sh)$").unwrap());
+    if value.ends_with('y') && !VOWEL_Y.is_match(value) {
         format!("{}ies", &value[..value.len() - 1])
-    } else if Regex::new(r"(s|x|z|ch|sh)$").unwrap().is_match(value) {
+    } else if SIBILANT.is_match(value) {
         format!("{value}es")
     } else if value.ends_with('s') {
         value.to_string()
@@ -110,15 +114,33 @@ pub fn split_args(args: &str) -> Vec<String> {
 
 pub fn named_string_arg(args: &str, name: &str) -> Option<String> {
     let pattern = format!(r#"{name}\s*:\s*['"]([^'"]+)['"]"#);
-    Regex::new(&pattern)
-        .ok()?
+    cached_regex(pattern)?
         .captures(args)
         .map(|c| c.get(1).unwrap().as_str().to_string())
 }
 
 pub fn has_chain(chain: &str, method: &str) -> bool {
     let pattern = format!(r"->{method}\s*\(");
-    Regex::new(&pattern).map(|re| re.is_match(chain)).unwrap_or(false)
+    cached_regex(pattern)
+        .map(|re| re.is_match(chain))
+        .unwrap_or(false)
+}
+
+// Named arguments and chain methods are reused across every model/migration.
+// Keep dynamic patterns bounded while avoiding compilation for each occurrence.
+fn cached_regex(pattern: String) -> Option<Regex> {
+    static CACHE: Lazy<parking_lot::Mutex<HashMap<String, Regex>>> =
+        Lazy::new(|| parking_lot::Mutex::new(HashMap::new()));
+    let mut cache = CACHE.lock();
+    if let Some(regex) = cache.get(&pattern) {
+        return Some(regex.clone());
+    }
+    let regex = Regex::new(&pattern).ok()?;
+    if cache.len() >= 128 {
+        cache.clear();
+    }
+    cache.insert(pattern, regex.clone());
+    Some(regex)
 }
 
 pub fn class_name_from_class_expr(value: &str) -> Option<String> {
@@ -130,7 +152,11 @@ pub fn class_name_from_class_expr(value: &str) -> Option<String> {
     if normalized.is_empty() || normalized.contains('$') {
         return None;
     }
-    normalized.split('\\').filter(|s| !s.is_empty()).last().map(|s| s.to_string())
+    normalized
+        .split('\\')
+        .filter(|s| !s.is_empty())
+        .last()
+        .map(|s| s.to_string())
 }
 
 pub fn class_base_name(value: Option<&str>) -> Option<String> {

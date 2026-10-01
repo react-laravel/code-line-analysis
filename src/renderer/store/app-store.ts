@@ -100,6 +100,18 @@ const RESTORE_FOLDER_KEY = 'restore-last-folder';
 const DETECT_DUPLICATES_KEY = 'detect-duplicates-on-scan';
 const VIEW_PATH_KEY = 'view-path-by-folder';
 const ACTIVITY_OPEN_KEY = 'activity-open-by-folder';
+let duplicatePreferenceVersion = 0;
+let duplicatePreferenceSynced = false;
+let duplicatePreferenceWrites: Promise<void> = Promise.resolve();
+
+function writeDuplicatePreference(enabled: boolean): Promise<void> {
+  duplicatePreferenceWrites = duplicatePreferenceWrites.catch(() => undefined).then(async () => {
+    if (typeof window.api.settings?.setDetectDuplicates === 'function') {
+      await window.api.settings.setDetectDuplicates(enabled);
+    }
+  });
+  return duplicatePreferenceWrites;
+}
 
 /** Routes that no longer exist; a persisted entry pointing at one would land on
  *  an empty outlet. `/tree` became the sidebar Explorer; `/dashboard` and
@@ -159,6 +171,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   repoInfoByFolder: {},
 
   async refreshFolders() {
+    if (!duplicatePreferenceSynced && typeof window.api.settings?.getDetectDuplicates === 'function') {
+      const version = duplicatePreferenceVersion;
+      try {
+        const persisted = readPersisted<boolean | null>(DETECT_DUPLICATES_KEY, null);
+        const enabled = persisted ?? await window.api.settings.getDetectDuplicates();
+        if (version === duplicatePreferenceVersion) {
+          set({ detectDuplicatesOnScan: enabled });
+          writePersisted(DETECT_DUPLICATES_KEY, enabled);
+          await writeDuplicatePreference(enabled);
+        }
+        duplicatePreferenceSynced = true;
+      } catch (error) {
+        console.error('Synchronizing duplicate detection preference failed:', error);
+      }
+    }
     const list = await window.api.folders.list();
     const currentId = get().activeFolderId;
     // Restore the last-used folder instead of `list[0]`, which — because
@@ -237,8 +264,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setDetectDuplicatesOnScan(enabled) {
+    duplicatePreferenceVersion += 1;
     writePersisted(DETECT_DUPLICATES_KEY, enabled);
     set({ detectDuplicatesOnScan: enabled });
+    void writeDuplicatePreference(enabled).catch(error => {
+      console.error('Saving duplicate detection preference failed:', error);
+    });
   },
 
   toggleTreePath(folderId, treePath, open) {

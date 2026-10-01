@@ -454,7 +454,10 @@ test('Save & Rescan runs only after a successful save, once, for the active fold
   await click(button('Save & Rescan'));
   await settle(save, rules(['src/**'], ['node_modules']));
   assert.equal(calls.globalSet.length, 1);
-  assert.deepEqual(calls.scans, [[folderA.id, { detectDuplicates: false }]]);
+  assert.equal(calls.scans.length, 1);
+  assert.equal(calls.scans[0][0], folderA.id);
+  assert.equal(calls.scans[0][1].detectDuplicates, false);
+  assert.match(calls.scans[0][1].requestId, /^[0-9a-f-]{36}$/);
 });
 
 test('without a folder, folder-scoped entry falls back safely and rescan stays disabled', async () => {

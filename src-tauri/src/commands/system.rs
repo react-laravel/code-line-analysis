@@ -32,17 +32,8 @@ pub fn system_show_tree_node_context_menu(
     let root = PathBuf::from(db::folder_root(&conn, request.folder_id)?);
     drop(conn);
 
-    let abs_path = if request.rel_path.is_empty() {
-        root.clone()
-    } else {
-        let candidate = root.join(&request.rel_path);
-        let abs = candidate.canonicalize().unwrap_or(candidate);
-        let root_c = root.canonicalize().unwrap_or(root.clone());
-        if abs != root_c && !abs.starts_with(&root_c) {
-            return Err(AppError::msg("Path outside folder root rejected"));
-        }
-        abs
-    };
+    let abs_path =
+        crate::scan::walk::ensure_inside_root(&root, &request.rel_path).map_err(AppError::msg)?;
 
     let rel_path = if request.rel_path.is_empty() {
         ".".to_string()
@@ -50,93 +41,103 @@ pub fn system_show_tree_node_context_menu(
         request.rel_path.clone()
     };
 
-    *state.pending_ctx.lock() = Some(PendingTreeContext {
+    let menu_id = state.register_tree_context(PendingTreeContext {
         display_name: request.display_name.clone(),
         rel_path: rel_path.clone(),
         abs_path: abs_path.clone(),
     });
 
-    let copy_name = MenuItem::with_id(
-        &app,
-        "ctx-copy-name",
-        &request.labels.copy_name,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| AppError::msg(e.to_string()))?;
-    let copy_rel = MenuItem::with_id(
-        &app,
-        "ctx-copy-rel",
-        &request.labels.copy_relative_path,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| AppError::msg(e.to_string()))?;
-    let copy_abs = MenuItem::with_id(
-        &app,
-        "ctx-copy-abs",
-        &request.labels.copy_absolute_path,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| AppError::msg(e.to_string()))?;
-    let sep = PredefinedMenuItem::separator(&app).map_err(|e| AppError::msg(e.to_string()))?;
-    let open_path = MenuItem::with_id(
-        &app,
-        "ctx-open-path",
-        &request.labels.open_path,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| AppError::msg(e.to_string()))?;
-    let reveal = MenuItem::with_id(
-        &app,
-        "ctx-reveal",
-        &request.labels.reveal_in_finder,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| AppError::msg(e.to_string()))?;
-
-    let menu = Menu::with_items(
-        &app,
-        &[&copy_name, &copy_rel, &copy_abs, &sep, &open_path, &reveal],
-    )
-    .map_err(|e| AppError::msg(e.to_string()))?;
-
-    let x = request.x.unwrap_or(0.0);
-    let y = request.y.unwrap_or(0.0);
-    window
-        .popup_menu_at(&menu, tauri::LogicalPosition::new(x, y))
+    let result = (|| {
+        let copy_name = MenuItem::with_id(
+            &app,
+            format!("ctx:{menu_id}:copy-name"),
+            &request.labels.copy_name,
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| AppError::msg(e.to_string()))?;
+        let copy_rel = MenuItem::with_id(
+            &app,
+            format!("ctx:{menu_id}:copy-rel"),
+            &request.labels.copy_relative_path,
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| AppError::msg(e.to_string()))?;
+        let copy_abs = MenuItem::with_id(
+            &app,
+            format!("ctx:{menu_id}:copy-abs"),
+            &request.labels.copy_absolute_path,
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| AppError::msg(e.to_string()))?;
+        let sep = PredefinedMenuItem::separator(&app).map_err(|e| AppError::msg(e.to_string()))?;
+        let open_path = MenuItem::with_id(
+            &app,
+            format!("ctx:{menu_id}:open-path"),
+            &request.labels.open_path,
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| AppError::msg(e.to_string()))?;
+        let reveal = MenuItem::with_id(
+            &app,
+            format!("ctx:{menu_id}:reveal"),
+            &request.labels.reveal_in_finder,
+            true,
+            None::<&str>,
+        )
         .map_err(|e| AppError::msg(e.to_string()))?;
 
-    Ok(())
+        let menu = Menu::with_items(
+            &app,
+            &[&copy_name, &copy_rel, &copy_abs, &sep, &open_path, &reveal],
+        )
+        .map_err(|e| AppError::msg(e.to_string()))?;
+
+        let x = request.x.unwrap_or(0.0);
+        let y = request.y.unwrap_or(0.0);
+        window
+            .popup_menu_at(&menu, tauri::LogicalPosition::new(x, y))
+            .map_err(|e| AppError::msg(e.to_string()))?;
+
+        Ok(())
+    })();
+    if result.is_err() {
+        state.pending_ctx.lock().remove(&menu_id);
+    }
+    result
 }
 
 pub fn handle_menu_event(app: &AppHandle, id: &str) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let pending = state.pending_ctx.lock().clone();
-    let Some(ctx) = pending else { return };
+    let Some((menu_id, action)) = parse_context_action(id) else {
+        return;
+    };
+    let Some(ctx) = state.pending_ctx.lock().remove(&menu_id) else {
+        return;
+    };
 
-    match id {
-        "ctx-copy-name" => {
+    match action {
+        "copy-name" => {
             if let Err(e) = copy_text(&ctx.display_name) {
                 show_error(app, "Unable to copy", &e);
             }
         }
-        "ctx-copy-rel" => {
+        "copy-rel" => {
             if let Err(e) = copy_text(&ctx.rel_path) {
                 show_error(app, "Unable to copy", &e);
             }
         }
-        "ctx-copy-abs" => {
+        "copy-abs" => {
             if let Err(e) = copy_text(&ctx.abs_path.to_string_lossy()) {
                 show_error(app, "Unable to copy", &e);
             }
         }
-        "ctx-open-path" => {
+        "open-path" => {
             if let Err(e) = app
                 .opener()
                 .open_path(ctx.abs_path.to_string_lossy().to_string(), None::<&str>)
@@ -144,12 +145,43 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) {
                 show_error(app, "Unable to open path", &e.to_string());
             }
         }
-        "ctx-reveal" => {
+        "reveal" => {
             if let Err(e) = app.opener().reveal_item_in_dir(&ctx.abs_path) {
                 show_error(app, "Unable to reveal path", &e.to_string());
             }
         }
         _ => {}
+    }
+}
+
+fn parse_context_action(id: &str) -> Option<(u64, &str)> {
+    let (id, action) = id.strip_prefix("ctx:")?.split_once(':')?;
+    if !matches!(
+        action,
+        "copy-name" | "copy-rel" | "copy-abs" | "open-path" | "reveal"
+    ) {
+        return None;
+    }
+    Some((id.parse().ok()?, action))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_context_action;
+
+    #[test]
+    fn actions_include_the_exact_menu_identity() {
+        assert_eq!(
+            parse_context_action("ctx:41:copy-rel"),
+            Some((41, "copy-rel"))
+        );
+        assert_eq!(
+            parse_context_action("ctx:42:copy-rel"),
+            Some((42, "copy-rel"))
+        );
+        assert_eq!(parse_context_action("ctx-copy-rel"), None);
+        assert_eq!(parse_context_action("ctx:41:unknown"), None);
+        assert_eq!(parse_context_action("ctx:no:copy-rel"), None);
     }
 }
 

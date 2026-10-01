@@ -10,6 +10,7 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { Spinner } from '../components/ui/spinner';
 import { TreeRow } from '../components/ui/tree-row';
 import ScanNowButton from '../components/ScanNowButton';
+import { useVirtualWindow } from '../hooks/useVirtualWindow';
 import { cn } from '../lib/utils';
 import {
   collectDirectoryPaths,
@@ -60,6 +61,12 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const typeahead = useRef<{ query: string; at: number }>({ query: '', at: 0 });
 
+  const expandedPaths = useMemo(() => {
+    const paths = folderId == null ? [] : expandedByFolder[folderId] ?? [];
+    return ['', ...paths.filter(path => path !== '')];
+  }, [expandedByFolder, folderId]);
+  const expandedPathSet = useMemo(() => new Set(expandedPaths), [expandedPaths]);
+
   /* ------------------------------------------------------------------ data */
 
   useEffect(() => {
@@ -73,7 +80,7 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
     let cancelled = false;
     setLoading(true);
 
-    window.api.stats.tree(folderId)
+    window.api.stats.tree(folderId, expandedPaths)
       .then(next => {
         if (cancelled) return;
         setExplorerTree(next);
@@ -89,18 +96,16 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [folderId, revision, setExplorerTree]);
+  }, [folderId, revision, setExplorerTree, expandedPaths]);
 
-  const expandedPathSet = useMemo(() => {
-    const next = new Set(folderId == null ? [] : expandedByFolder[folderId] ?? ['']);
-    next.add('');
-    return next;
-  }, [expandedByFolder, folderId]);
+
 
   const rows: FlatTreeRow[] = useMemo(
     () => (tree ? flattenTree(tree, expandedPathSet) : []),
     [expandedPathSet, tree],
   );
+
+  const virtual = useVirtualWindow(viewportRef, rows.length, 26, rows.length > 200 && !collapsed);
 
   const directories = useMemo(
     () => (tree ? collectDirectoryPaths(tree) : { allPaths: [], maxDepth: 0 }),
@@ -126,11 +131,8 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
     function update(): void {
       rafId = null;
       if (!viewport || !list) return;
-      const nodes = Array.from(list.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-      if (nodes.length === 0) return;
-      const threshold = viewport.getBoundingClientRect().top;
-      const index = nodes.findIndex(node => node.getBoundingClientRect().bottom > threshold);
-      const row = rows[index < 0 ? rows.length - 1 : index];
+      const index = Math.min(rows.length - 1, Math.floor(viewport.scrollTop / 26));
+      const row = rows[index];
       if (!row) return;
       const activePath = row.node.isDir ? row.node.path : parentDirectoryPath(row.node.path);
       setCurrentDirPath(previous => (previous === activePath ? previous : activePath));
@@ -169,12 +171,20 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
   }, [expandedPathSet, folderId, navigate, openFile, toggleTreePath]);
 
   function focusRow(index: number): void {
-    const nodes = listRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]');
-    const node = nodes?.[index];
-    if (!node) return;
     setFocusIndex(index);
-    node.focus();
-    node.scrollIntoView({ block: 'nearest' });
+    const viewport = viewportRef.current;
+    if (viewport) {
+      const top = index * 26;
+      if (top < viewport.scrollTop) viewport.scrollTop = top;
+      else if (top + 26 > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top + 26 - viewport.clientHeight;
+      // Mount the destination row before the focus frame, without waiting for
+      // the browser's later asynchronous scroll event.
+      virtual.refresh();
+    }
+    window.requestAnimationFrame(() => {
+      const node = listRef.current?.querySelector<HTMLElement>(`[data-tree-index="${index}"] [role="treeitem"]`);
+      node?.focus({ preventScroll: true });
+    });
   }
 
   /**
@@ -238,10 +248,9 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
 
   function onContextMenu(event: React.MouseEvent<HTMLDivElement>): void {
     if (folderId == null) return;
-    const target = event.target instanceof Element ? event.target.closest('[role="treeitem"]') : null;
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-tree-index]') : null;
     if (!target) return;
-    const nodes = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []);
-    const row = rows[nodes.indexOf(target as HTMLElement)];
+    const row = rows[Number(target.dataset.treeIndex)];
     if (!row) return;
 
     event.preventDefault();
@@ -377,12 +386,14 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
             onKeyDown={onKeyDown}
             onContextMenu={onContextMenu}
             onFocusCapture={event => {
-              const nodes = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []);
-              const index = nodes.indexOf(event.target as HTMLElement);
+              const target = (event.target as HTMLElement).closest<HTMLElement>('[data-tree-index]');
+              const index = target ? Number(target.dataset.treeIndex) : -1;
               if (index >= 0) setFocusIndex(index);
             }}
           >
-            {rows.map((row, index) => {
+            <div aria-hidden style={{ height: virtual.before }} />
+            {rows.slice(virtual.start, virtual.end).map((row, visibleIndex) => {
+              const index = virtual.start + visibleIndex;
               const isRoot = row.node.path === '';
               const expanded = row.node.isDir && expandedPathSet.has(row.node.path);
               const name = row.node.name || rootName;
@@ -392,8 +403,8 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
               const counts = `${row.node.total.toLocaleString(locale)} ${t('common.lines')}`
                 + (row.node.isDir ? ` · ${row.node.files.toLocaleString(locale)} ${t('common.files')}` : '');
               return (
+                <div key={row.node.path || '/'} data-tree-index={index}>
                 <TreeRow
-                  key={row.node.path || '/'}
                   depth={row.depth}
                   indentDepth={Math.max(0, row.depth - 1)}
                   label={<span className="font-mono text-xs">{name}</span>}
@@ -416,8 +427,10 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
                   )}
                   onActivate={() => activate(row)}
                 />
+                </div>
               );
             })}
+            <div aria-hidden style={{ height: virtual.after }} />
           </div>
         )}
       </ScrollArea>

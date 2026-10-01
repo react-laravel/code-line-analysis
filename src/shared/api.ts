@@ -81,7 +81,9 @@ export interface DuplicateRow {
 
 export interface ScanProgress {
   folderId: number;
+  requestId?: string;
   phase: 'walking' | 'parsing' | 'persisting' | 'done';
+  outcome?: 'success' | 'cancelled' | 'error';
   total: number;
   done: number;
   current?: string;
@@ -172,6 +174,7 @@ export interface GitRepoInfo {
 }
 
 export interface ScanOptions {
+  requestId?: string;
   full?: boolean;
   detectDuplicates?: boolean;
   duplicateMinLines?: number;
@@ -227,10 +230,14 @@ export interface Api {
   settings: {
     getGlobalRules: () => Promise<FolderRules>;
     setGlobalRules: (rules: FolderRules) => Promise<FolderRules>;
+    getDetectDuplicates: () => Promise<boolean>;
+    setDetectDuplicates: (enabled: boolean) => Promise<void>;
   };
   stats: {
     summary: (folderId: number) => Promise<FolderStats>;
-    tree: (folderId: number) => Promise<DirNode>;
+    tree: (folderId: number, expandedPaths?: string[]) => Promise<DirNode>;
+    filesPage: (folderId: number, offset?: number, limit?: number) => Promise<{ rows: TopFile[]; total: number; revision: number }>;
+    fileDates: (folderId: number) => Promise<{ dates: Record<string, number>; revision: number }>;
     topFiles: (folderId: number, limit?: number, sortBy?: TopFileSortKey) => Promise<TopFile[]>;
     topFunctions: (folderId: number, limit?: number) => Promise<TopFunction[]>;
     apiRoutes: (folderId: number) => Promise<ApiRouteOverview>;
@@ -243,11 +250,12 @@ export interface Api {
   };
   file: {
     read: (folderId: number, relPath: string) => Promise<{ content: string; meta: FileMeta }>;
-    write: (folderId: number, relPath: string, content: string) => Promise<FileMeta>;
+    write: (folderId: number, relPath: string, content: string, expectedHash: string) => Promise<FileMeta>;
     meta: (folderId: number, relPath: string) => Promise<FileMeta | null>;
   };
   git: {
-    fileInfo: (folderId: number, relPath: string) => Promise<GitFileInfo | null>;
+    fileInfo: (folderId: number, relPath: string, requestId?: string) => Promise<GitFileInfo | null>;
+    cancelFileInfo: (requestId: string) => Promise<void>;
     repoInfo: (folderId: number) => Promise<GitRepoInfo | null>;
   };
   system: {

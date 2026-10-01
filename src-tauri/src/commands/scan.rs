@@ -1,4 +1,5 @@
 use crate::commands::folders::{get_folder_rules, get_global_rules, resolve_rules};
+use crate::commands::settings::get_detect_duplicates;
 use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::scan::scan_folder;
@@ -37,6 +38,7 @@ pub fn init_scan_scheduler(app: AppHandle) {
                         opts,
                         reply,
                     } => {
+                        let request_id = opts.request_id.clone();
                         let Some(state) = worker_app.try_state::<AppState>() else {
                             if let Some(reply) = reply {
                                 let _ = reply.send(Err(AppError::msg("App state unavailable")));
@@ -48,18 +50,23 @@ pub fn init_scan_scheduler(app: AppHandle) {
                             Ok(_) => log::info!("scan finished for folder {folder_id}"),
                             Err(e) => {
                                 log::warn!("scan failed for folder {folder_id}: {e}");
-                                // The engine only emits a terminal "done" on success or
-                                // cooperative cancel; emit one here on failure so the
-                                // frontend's isScanning flag never sticks.
+                                // Only committed scans emit success. Cancellation rolls
+                                // back the transaction and is a distinct terminal outcome.
                                 let _ = worker_app.emit(
                                     "scan:progress",
                                     ScanProgress {
+                                        request_id,
                                         folder_id,
                                         phase: "done".into(),
                                         total: 0,
                                         done: 0,
                                         current: None,
                                         cache_hits: None,
+                                        outcome: Some(if matches!(e, AppError::Cancelled) {
+                                            "cancelled".into()
+                                        } else {
+                                            "error".into()
+                                        }),
                                     },
                                 );
                             }
@@ -77,9 +84,7 @@ pub fn init_scan_scheduler(app: AppHandle) {
 }
 
 fn scheduler() -> &'static ScanScheduler {
-    SCHEDULER
-        .get()
-        .expect("scan scheduler not initialized")
+    SCHEDULER.get().expect("scan scheduler not initialized")
 }
 
 pub fn perform_scan(
@@ -94,7 +99,7 @@ pub fn perform_scan(
         let cancel = state.cancel.clone();
         state.clear_cancel();
 
-        let (root, rules, dup_min, dup_rules) = {
+        let (root, rules, dup_min, dup_rules, detect_duplicates) = {
             let conn = state.db.lock();
             let root = db::folder_root(&conn, folder_id)?;
             let global = get_global_rules(&conn)?;
@@ -107,19 +112,33 @@ pub fn perform_scan(
             let dup_rules = db::get_setting(&conn, &db::duplicate_rules_key(folder_id))?
                 .and_then(|raw| serde_json::from_str(&raw).ok())
                 .unwrap_or_default();
-            (root, rules, dup_min, dup_rules)
+            (
+                root,
+                rules,
+                dup_min,
+                dup_rules,
+                get_detect_duplicates(&conn)?,
+            )
         };
 
         opts.duplicate_min_lines = Some(opts.duplicate_min_lines.unwrap_or(dup_min));
         if opts.detect_duplicates.is_none() {
-            opts.detect_duplicates = Some(true);
+            opts.detect_duplicates = Some(detect_duplicates);
         }
         if opts.duplicate_rules.is_none() {
             opts.duplicate_rules = Some(dup_rules);
         }
 
         let app2 = app.clone();
-        let on_progress: crate::scan::engine::ProgressCb = Box::new(move |p: ScanProgress| {
+        let request_id = opts.request_id.clone();
+        let on_progress: crate::scan::engine::ProgressCb = Box::new(move |mut p: ScanProgress| {
+            p.request_id = request_id.clone();
+            // Invalidate analysis caches before the renderer sees committed data.
+            if p.phase == "done" && p.outcome.as_deref() == Some("success") {
+                if let Some(state) = app2.try_state::<AppState>() {
+                    state.data_revision.fetch_add(1, Ordering::Relaxed);
+                }
+            }
             let _ = app2.emit("scan:progress", p);
         });
 

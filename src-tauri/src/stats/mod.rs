@@ -91,7 +91,7 @@ pub fn summary_for_folder(conn: &Connection, folder_id: i64) -> AppResult<Folder
     })
 }
 
-pub fn get_tree(conn: &Connection, folder_id: i64) -> AppResult<DirNode> {
+pub fn tree_rows(conn: &Connection, folder_id: i64) -> AppResult<Vec<(String, i64, i64, i64, i64)>> {
     let mut rows = Vec::new();
     {
         let mut stmt = conn.prepare(
@@ -103,6 +103,10 @@ pub fn get_tree(conn: &Connection, folder_id: i64) -> AppResult<DirNode> {
         for row in it.flatten() { rows.push(row); }
     }
 
+    Ok(rows)
+}
+
+pub fn build_tree(rows: Vec<(String, i64, i64, i64, i64)>, expanded: Option<&std::collections::HashSet<String>>) -> DirNode {
     let mut nodes: HashMap<String, DirNode> = HashMap::new();
     nodes.insert(String::new(), DirNode {
         name: "/".into(), path: String::new(), is_dir: true,
@@ -169,7 +173,16 @@ pub fn get_tree(conn: &Connection, folder_id: i64) -> AppResult<DirNode> {
         node
     }
 
-    Ok(assemble("", &mut nodes, &children_of))
+    let mut tree = assemble("", &mut nodes, &children_of);
+    fn trim_files(node: &mut DirNode, expanded: &std::collections::HashSet<String>) {
+        let show_files = node.path.is_empty() || expanded.contains(&node.path);
+        if let Some(children) = &mut node.children {
+            children.retain(|child| child.is_dir || show_files);
+            for child in children { if child.is_dir { trim_files(child, expanded); } }
+        }
+    }
+    if let Some(expanded) = expanded { trim_files(&mut tree, expanded); }
+    tree
 }
 
 pub fn get_top_files(conn: &Connection, folder_id: i64, limit: i64, sort_by: &str) -> AppResult<Vec<TopFile>> {
@@ -189,6 +202,15 @@ pub fn get_top_files(conn: &Connection, folder_id: i64, limit: i64, sort_by: &st
         })
     })?;
     Ok(rows.flatten().collect())
+}
+
+pub fn get_files_page(conn: &Connection, folder_id: i64, offset: i64, limit: i64) -> AppResult<(Vec<TopFile>, i64)> {
+    let total = conn.query_row("SELECT COUNT(*) FROM files WHERE folder_id = ? AND deleted = 0", [folder_id], |r| r.get(0))?;
+    let mut stmt = conn.prepare("SELECT rel_path, total, code, size, lang FROM files WHERE folder_id = ? AND deleted = 0 ORDER BY rel_path LIMIT ? OFFSET ?")?;
+    let rows = stmt.query_map(rusqlite::params![folder_id, limit.clamp(1, 2000), offset.max(0)], |r| Ok(TopFile {
+        rel_path: r.get(0)?, total: r.get(1)?, code: r.get(2)?, size: r.get(3)?, lang: r.get(4)?, last_commit_date: None,
+    }))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok((rows, total))
 }
 
 pub fn get_top_functions(conn: &Connection, folder_id: i64, limit: i64) -> AppResult<Vec<TopFunction>> {
@@ -255,19 +277,24 @@ pub fn get_file_tags(conn: &Connection, folder_id: i64, rel_path: &str) -> AppRe
     Ok(rows.flatten().collect())
 }
 
+#[cfg(test)]
 pub fn get_duplicates(
     conn: &Connection,
     folder_id: i64,
-    duplicate_min_lines: i64,
+    _duplicate_min_lines: i64,
 ) -> AppResult<Vec<DuplicateCluster>> {
+    Ok(build_duplicates(duplicate_rows(conn, folder_id)?))
+}
+
+pub fn duplicate_rows(conn: &Connection, folder_id: i64) -> AppResult<Vec<(String, String, i64, i64)>> {
     let mut stmt = conn.prepare(
         "SELECT duplicates.hash, files.rel_path, duplicates.start_line, duplicates.end_line
          FROM duplicates JOIN files ON duplicates.file_id = files.id
          WHERE files.folder_id = ? AND files.deleted = 0
+         AND duplicates.hash IN (SELECT d.hash FROM duplicates d JOIN files f ON d.file_id = f.id WHERE f.folder_id = ? AND f.deleted = 0 GROUP BY d.hash HAVING COUNT(*) > 1)
          ORDER BY duplicates.hash",
     )?;
-    let mut by_hash: HashMap<String, Vec<DuplicateOccurrence>> = HashMap::new();
-    let rows = stmt.query_map([folder_id], |r| {
+    let rows = stmt.query_map([folder_id, folder_id], |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -275,7 +302,12 @@ pub fn get_duplicates(
             r.get::<_, i64>(3)?,
         ))
     })?;
-    for (hash, rel, start, end) in rows.flatten() {
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn build_duplicates(rows: Vec<(String, String, i64, i64)>) -> Vec<DuplicateCluster> {
+    let mut by_hash: HashMap<String, Vec<DuplicateOccurrence>> = HashMap::new();
+    for (hash, rel, start, end) in rows {
         by_hash.entry(hash).or_default().push(DuplicateOccurrence {
             rel_path: rel,
             start_line: start,
@@ -294,10 +326,11 @@ pub fn get_duplicates(
                 .then(a.start_line.cmp(&b.start_line))
                 .then(a.end_line.cmp(&b.end_line))
         });
+        let lines = occurrences.iter().map(|o| o.end_line - o.start_line + 1).max().unwrap_or(0);
         clusters.push(DuplicateCluster {
             hash,
             occurrences,
-            lines: duplicate_min_lines,
+            lines,
         });
     }
 
@@ -308,7 +341,7 @@ pub fn get_duplicates(
         score_b.cmp(&score_a).then(b.lines.cmp(&a.lines))
     });
     compacted.truncate(200);
-    Ok(compacted)
+    compacted
 }
 
 fn duplicate_signature(occurrences: &[DuplicateOccurrence]) -> String {
@@ -434,4 +467,54 @@ pub fn get_heatmap_from_mtime(conn: &Connection, folder_id: i64, days: i64) -> A
         .collect();
     out.sort_by(|a, b| a.date.cmp(&b.date));
     Ok(out)
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    fn fixture() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE files(id INTEGER PRIMARY KEY, folder_id INTEGER, rel_path TEXT, total INTEGER, code INTEGER, size INTEGER, lang TEXT, deleted INTEGER); CREATE TABLE duplicates(hash TEXT, file_id INTEGER, start_line INTEGER, end_line INTEGER);").unwrap();
+        conn
+    }
+
+    #[test]
+    fn pages_include_small_files_beyond_the_old_top_five_thousand() {
+        let mut conn = fixture();
+        let tx = conn.transaction().unwrap();
+        for index in 0..5105 {
+            tx.execute("INSERT INTO files VALUES(?,1,?,1,1,10,'Rust',0)", rusqlite::params![index + 1, format!("src/{index:05}.rs")]).unwrap();
+        }
+        tx.commit().unwrap();
+        let (page, total) = get_files_page(&conn, 1, 5000, 1000).unwrap();
+        assert_eq!(total, 5105);
+        assert_eq!(page.len(), 105);
+        assert_eq!(page.last().unwrap().rel_path, "src/05104.rs");
+        assert_eq!(get_files_page(&conn, 1, 0, i64::MAX).unwrap().0.len(), 2000);
+    }
+
+    #[test]
+    fn duplicate_length_comes_from_persisted_ranges_not_pending_threshold() {
+        let conn = fixture();
+        conn.execute_batch("INSERT INTO files VALUES(1,1,'a.rs',10,10,100,'Rust',0),(2,1,'b.rs',10,10,100,'Rust',0),(3,2,'other.rs',10,10,100,'Rust',0); INSERT INTO duplicates VALUES('shared',1,2,5),('shared',2,4,7),('unique',1,8,10),('unique',3,8,10);").unwrap();
+        let clusters = get_duplicates(&conn, 1, 20).unwrap();
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].lines, 4);
+        assert_eq!(clusters[0].occurrences.len(), 2);
+    }
+
+    #[test]
+    fn tree_omits_collapsed_leaf_files_without_losing_directory_counts() {
+        let rows = vec![("src/nested/a.rs".into(),10,8,1,1), ("root.rs".into(),20,18,1,1)];
+        let collapsed = build_tree(rows.clone(), Some(&std::collections::HashSet::new()));
+        assert_eq!(collapsed.files, 2);
+        assert_eq!(collapsed.total, 30);
+        let src = collapsed.children.as_ref().unwrap().iter().find(|n| n.path == "src").unwrap();
+        let nested = &src.children.as_ref().unwrap()[0];
+        assert_eq!(nested.files, 1);
+        assert!(nested.children.as_ref().unwrap().is_empty());
+        let expanded = build_tree(rows, Some(&["src/nested".to_string()].into_iter().collect()));
+        assert_eq!(expanded.children.as_ref().unwrap()[0].children.as_ref().unwrap()[0].children.as_ref().unwrap()[0].path, "src/nested/a.rs");
+    }
 }

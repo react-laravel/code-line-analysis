@@ -111,6 +111,11 @@ fn add_lookup_entry(lookup: &mut HashMap<String, String>, key: &str, rel_path: &
     }
 }
 
+static INDEX_FILE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^index\.[^/.]+$").unwrap());
+static PHP_ALIAS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+as\s+[A-Za-z_][A-Za-z0-9_]*$").unwrap());
+static PHP_QUALIFIER: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(?:function|const)\s+").unwrap());
+static WHITESPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+
 fn build_lookup(files: &[SourceFile]) -> HashMap<String, String> {
     let mut lookup = HashMap::new();
     for file in files {
@@ -120,7 +125,7 @@ fn build_lookup(files: &[SourceFile]) -> HashMap<String, String> {
         add_lookup_entry(&mut lookup, &without_ext, &normalized);
 
         let file_name = normalized.rsplit('/').next().unwrap_or("");
-        if Regex::new(r"^index\.[^/.]+$").unwrap().is_match(file_name) {
+        if INDEX_FILE.is_match(file_name) {
             let dir_path = dirname(&normalized);
             add_lookup_entry(&mut lookup, &dir_path, &normalized);
         }
@@ -148,15 +153,13 @@ fn normalize_php_namespace(specifier: &str) -> String {
 }
 
 fn strip_php_use_alias(specifier: &str) -> String {
-    Regex::new(r"\s+as\s+[A-Za-z_][A-Za-z0-9_]*$")
-        .unwrap()
+    PHP_ALIAS
         .replace(specifier, "")
         .to_string()
 }
 
 fn strip_php_use_qualifier(specifier: &str) -> String {
-    Regex::new(r"^(?:function|const)\s+")
-        .unwrap()
+    PHP_QUALIFIER
         .replace(specifier, "")
         .trim()
         .to_string()
@@ -171,8 +174,7 @@ fn split_php_use_items(value: &str) -> Vec<String> {
 }
 
 fn expand_php_use_statement(statement: &str) -> Vec<String> {
-    let normalized = Regex::new(r"\s+")
-        .unwrap()
+    let normalized = WHITESPACE
         .replace_all(statement.trim(), " ")
         .to_string();
     if normalized.is_empty() || normalized.starts_with('(') || normalized.contains('$') {

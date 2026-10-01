@@ -4,25 +4,17 @@ import type { JobStatus } from '../components/ui';
 import { useAppStore } from './app-store';
 import { readPersisted, writePersisted } from './persist';
 
-/**
- * One `ScanJob` with the DESIGN-SYSTEM §7 vocabulary
- * (`idle → queued → running → done | error | cancelled`).
- *
- * Replaces the implicit-only trigger at `App.tsx:165-175`, the layout-shifting
- * `scan-panel`, and the `progress.phase === 'done'` → `setScanRevision` effect.
- */
 export interface ScanState {
   status: JobStatus;
   folderId: number | null;
   progress: ScanProgress | null;
   error: string | null;
-  /** Incremented on every terminal transition so the shell can toast once. */
   outcomeToken: number;
-  /** Epoch ms of the last successful scan, per folder — drives "scanned 2m ago". */
   lastScanAt: Record<number, number>;
   durationMs: number | null;
   filesScanned: number | null;
-
+  /** Every submitted manual job remains visible until its command settles. */
+  queuedFolderIds: number[];
   listen: () => () => void;
   run: (folderId: number, opts?: ScanOptions) => Promise<void>;
   cancel: () => void;
@@ -30,10 +22,9 @@ export interface ScanState {
 }
 
 const LAST_SCAN_KEY = 'last-scan-at';
-
+interface PendingJob { folderId: number; startedAt: number; refreshed: boolean }
+const pendingJobs = new Map<string, PendingJob>();
 let cancelRequested = false;
-let pendingRunFolderId: number | null = null;
-let startedAt = 0;
 let doneTimer: number | null = null;
 
 function clearDoneTimer(): void {
@@ -43,121 +34,127 @@ function clearDoneTimer(): void {
   }
 }
 
-export const useScanStore = create<ScanState>((set, get) => ({
-  status: 'idle',
-  folderId: null,
-  progress: null,
-  error: null,
-  outcomeToken: 0,
-  lastScanAt: readPersisted<Record<number, number>>(LAST_SCAN_KEY, {}),
-  durationMs: null,
-  filesScanned: null,
+function pendingFolders(): number[] {
+  return Array.from(pendingJobs.values(), job => job.folderId);
+}
 
-  listen() {
-    return window.api.scan.onProgress(progress => {
-      // Watchers and rule changes enqueue scans without calling run(), so
-      // there is no command promise to clear their busy state. A manual scan
-      // still settles through its promise, which carries success/error details.
-      if (progress.phase === 'done' && pendingRunFolderId !== progress.folderId) {
+export const useScanStore = create<ScanState>((set, get) => {
+  function recordSuccess(folderId: number): void {
+    const lastScanAt = { ...get().lastScanAt, [folderId]: Date.now() };
+    writePersisted(LAST_SCAN_KEY, lastScanAt);
+    set({ lastScanAt });
+    useAppStore.getState().bumpRevision();
+  }
+
+  return {
+    status: 'idle', folderId: null, progress: null, error: null,
+    outcomeToken: 0, lastScanAt: readPersisted<Record<number, number>>(LAST_SCAN_KEY, {}),
+    durationMs: null, filesScanned: null, queuedFolderIds: [],
+
+    listen() {
+      return window.api.scan.onProgress(progress => {
+        const job = progress.requestId ? pendingJobs.get(progress.requestId) : undefined;
+        if (progress.phase === 'done') {
+          // Terminal outcome is explicit, including an empty successful repository.
+          // Legacy runtimes cannot prove success from a zero-file terminal event.
+          const successful = progress.outcome === 'success'
+            || (!progress.outcome && !job && !cancelRequested && progress.total > 0);
+          if (successful) {
+            recordSuccess(progress.folderId);
+            if (job) job.refreshed = true;
+          }
+          if (job) {
+            set({ progress });
+            return; // Its command promise owns its terminal UI transition.
+          }
+          clearDoneTimer();
+          const cancelled = progress.outcome === 'cancelled' || (!progress.outcome && cancelRequested);
+          cancelRequested = false;
+          const queued = pendingFolders();
+          set(state => ({
+            status: queued.length > 0 ? 'queued' : cancelled ? 'cancelled' : progress.outcome === 'error' ? 'error' : 'idle',
+            folderId: queued[0] ?? progress.folderId, progress: null, error: null,
+            durationMs: null, filesScanned: null,
+            outcomeToken: state.outcomeToken + (cancelled || progress.outcome === 'error' ? 1 : 0),
+          }));
+          return;
+        }
         clearDoneTimer();
-        const cancelled = cancelRequested;
         cancelRequested = false;
+        if (job && job.startedAt === 0) job.startedAt = Date.now();
+        set({ progress, folderId: progress.folderId, status: 'running' });
+      });
+    },
+
+    async run(folderId, opts) {
+      // The backend serializes all jobs. Submit every request immediately so a
+      // bulk import is fully queued even while another repository is scanning.
+      const id = crypto.randomUUID();
+      const job: PendingJob = { folderId, startedAt: 0, refreshed: false };
+      pendingJobs.set(id, job);
+      clearDoneTimer();
+      const alreadyRunning = get().status === 'running';
+      set({
+        queuedFolderIds: pendingFolders(),
+        ...(alreadyRunning ? {} : { status: 'queued', folderId: pendingFolders()[0], progress: null, error: null, durationMs: null, filesScanned: null }),
+      });
+      try {
+        const stats = await window.api.scan.run(folderId, { ...opts, requestId: id });
+        // A cancellation may race with a successful commit. A successful reply
+        // always represents committed data and must refresh the renderer.
+        if (!job.refreshed) recordSuccess(folderId);
+        pendingJobs.delete(id);
+        const queued = pendingFolders();
+        const otherRunning = get().status === 'running' && get().progress?.requestId !== id;
         set(state => ({
-          status: pendingRunFolderId != null ? 'queued' : cancelled ? 'cancelled' : 'idle',
-          folderId: pendingRunFolderId ?? progress.folderId,
-          progress: null,
-          error: null,
-          durationMs: null,
-          filesScanned: null,
-          outcomeToken: state.outcomeToken + (cancelled && pendingRunFolderId == null ? 1 : 0),
+          queuedFolderIds: queued, outcomeToken: state.outcomeToken + 1,
+          ...(otherRunning ? {} : {
+            status: queued.length > 0 ? 'queued' : 'done', folderId: queued[0] ?? folderId,
+            progress: null, error: null, durationMs: job.startedAt ? Date.now() - job.startedAt : null, filesScanned: stats.totalFiles,
+          }),
         }));
-        // The backend also emits `done` on failure. Refresh cached results,
-        // but do not record a successful scan without a successful response.
-        useAppStore.getState().bumpRevision();
-        return;
-      }
-
-      // Partial results stream: keep the last payload so the toolbar line and
-      // the status bar can render `n/m` plus the current file.
-      set(state => ({
-        progress,
-        folderId: progress.folderId,
-        status: progress.phase === 'done' ? state.status : 'running',
-      }));
-    });
-  },
-
-  async run(folderId, opts) {
-    if (pendingRunFolderId != null || get().status === 'running' || get().status === 'queued') return;
-    clearDoneTimer();
-    pendingRunFolderId = folderId;
-    cancelRequested = false;
-    startedAt = Date.now();
-    set({ status: 'queued', folderId, progress: null, error: null, durationMs: null, filesScanned: null });
-
-    try {
-      const stats = await window.api.scan.run(folderId, opts);
-      if (cancelRequested) {
+        if (!otherRunning && queued.length === 0) {
+          doneTimer = window.setTimeout(() => {
+            doneTimer = null;
+            if (get().status === 'done') set({ status: 'idle', progress: null });
+          }, 1200);
+        }
+      } catch (error) {
+        pendingJobs.delete(id);
+        const message = error instanceof Error ? error.message : String(error ?? '');
+        const cancelled = /scan cancelled/i.test(message);
+        const queued = pendingFolders();
+        const otherRunning = get().status === 'running' && get().progress?.requestId !== id;
         set(state => ({
-          status: 'cancelled',
-          progress: null,
-          outcomeToken: state.outcomeToken + 1,
+          queuedFolderIds: queued, outcomeToken: state.outcomeToken + 1,
+          ...(otherRunning ? {} : {
+            status: queued.length > 0 ? 'queued' : cancelled ? 'cancelled' : 'error',
+            folderId: queued[0] ?? folderId, progress: null, error: cancelled ? null : message,
+          }),
         }));
-        return;
+      } finally {
+        cancelRequested = false;
       }
+    },
 
-      const lastScanAt = { ...get().lastScanAt, [folderId]: Date.now() };
-      writePersisted(LAST_SCAN_KEY, lastScanAt);
-      set(state => ({
-        status: 'done',
-        lastScanAt,
-        durationMs: Date.now() - startedAt,
-        filesScanned: stats.totalFiles,
-        outcomeToken: state.outcomeToken + 1,
-      }));
-      useAppStore.getState().bumpRevision();
+    cancel() {
+      const { status } = get();
+      if (status !== 'running' && status !== 'queued') return;
+      cancelRequested = true;
+      void window.api.scan.cancel().catch(() => undefined);
+    },
 
-      // `done` holds the bar for a beat, then the chrome goes quiet again.
-      doneTimer = window.setTimeout(() => {
-        doneTimer = null;
-        if (get().status !== 'done') return;
-        set({ status: 'idle', progress: null });
-      }, 1200);
-    } catch (error) {
-      if (cancelRequested) {
-        set(state => ({ status: 'cancelled', progress: null, outcomeToken: state.outcomeToken + 1 }));
-        return;
-      }
-      set(state => ({
-        status: 'error',
-        progress: null,
-        error: error instanceof Error ? error.message : String(error ?? ''),
-        outcomeToken: state.outcomeToken + 1,
-      }));
-    } finally {
-      pendingRunFolderId = null;
-      cancelRequested = false;
-    }
-  },
-
-  cancel() {
-    const { status } = get();
-    if (status !== 'running' && status !== 'queued') return;
-    cancelRequested = true;
-    void window.api.scan.cancel().catch(() => undefined);
-  },
-
-  reset() {
-    clearDoneTimer();
-    set({ status: 'idle', progress: null, error: null });
-  },
-}));
+    reset() {
+      clearDoneTimer();
+      set({ status: 'idle', progress: null, error: null });
+    },
+  };
+});
 
 export function useIsScanning(): boolean {
   return useScanStore(state => state.status === 'running' || state.status === 'queued');
 }
 
-/** Folder controls must not follow another repository's background work. */
 export function isFolderScanning(
   state: Pick<ScanState, 'status' | 'folderId'>,
   folderId: number | null | undefined,

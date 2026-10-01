@@ -1,5 +1,6 @@
 // synced from mysql-compare/src/renderer/components/ui — Doge Desktop Design System
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useVirtualWindow } from '../../hooks/useVirtualWindow';
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { DropdownMenu } from './menu';
@@ -44,6 +45,7 @@ export interface DataTableProps<Row> {
   streaming?: boolean;
   empty?: React.ReactNode;
   stickyHeader?: boolean;
+  virtual?: boolean;
   className?: string;
   'aria-label'?: string;
 }
@@ -155,10 +157,14 @@ export function DataTable<Row>({
   streaming,
   empty,
   stickyHeader = true,
+  virtual = false,
   className,
   ...rest
 }: DataTableProps<Row>) {
   const [menu, setMenu] = useState<{ items: MenuItem[]; point: { x: number; y: number } } | null>(null);
+  const viewport = useRef<HTMLDivElement | null>(null);
+  const pixelHeight = variant === 'grid' && density !== 'comfortable' ? 26 : 30;
+  const virtualWindow = useVirtualWindow(viewport, rows.length, pixelHeight, virtual);
 
   const rowHeight = useMemo(() => {
     if (variant === 'grid') return density === 'comfortable' ? 'h-row-grid-comfy' : 'h-row-grid';
@@ -172,16 +178,27 @@ export function DataTable<Row>({
     else onSortChange(null);
   }
 
+  function focusRow(index: number): void {
+    const node = viewport.current;
+    if (!node) return;
+    const top = index * pixelHeight;
+    if (top < node.scrollTop) node.scrollTop = top;
+    else if (top + pixelHeight * 2 > node.scrollTop + node.clientHeight) node.scrollTop = top + pixelHeight * 2 - node.clientHeight;
+    virtualWindow.refresh();
+    window.requestAnimationFrame(() => node.querySelector<HTMLElement>(`[data-table-index="${index}"]`)?.focus({ preventScroll: true }));
+  }
+
   if (!loading && rows.length === 0 && empty) {
     return <div className={cn('rounded-lg border border-border bg-surface', className)}>{empty}</div>;
   }
 
   return (
     <div
+      ref={viewport}
       aria-busy={streaming || undefined}
-      className={cn('min-w-0 overflow-x-auto rounded-lg border border-border bg-surface', className)}
+      className={cn('min-w-0 overflow-x-auto rounded-lg border border-border bg-surface', virtual && 'max-h-[65vh] overflow-y-auto', className)}
     >
-      <Table {...rest}>
+      <Table aria-rowcount={virtual ? rows.length + 1 : undefined} {...rest}>
         <THead className={cn(stickyHeader && 'sticky top-0 z-[var(--ds-z-sticky)]')}>
           <Tr>
             {columns.map(column => (
@@ -200,6 +217,7 @@ export function DataTable<Row>({
           </Tr>
         </THead>
         <TBody>
+          {virtual && virtualWindow.before > 0 ? <tr aria-hidden><td colSpan={columns.length} style={{ height: virtualWindow.before, padding: 0, border: 0 }} /></tr> : null}
           {loading ? (
             <Tr>
               <Td colSpan={columns.length} truncate={false} className="p-2">
@@ -207,7 +225,8 @@ export function DataTable<Row>({
               </Td>
             </Tr>
           ) : (
-            rows.map((row, index) => {
+            rows.slice(virtualWindow.start, virtualWindow.end).map((row, visibleIndex) => {
+              const index = visibleIndex + virtualWindow.start;
               const key = rowKey(row, index);
               const selected = selection?.selected.has(key) ?? false;
               const tone = rowTone?.(row) ?? null;
@@ -215,6 +234,8 @@ export function DataTable<Row>({
               return (
                 <Tr
                   key={key}
+                  aria-rowindex={virtual ? index + 2 : undefined}
+                  data-table-index={index}
                   aria-selected={selection ? selected : undefined}
                   tabIndex={activatable ? 0 : undefined}
                   data-focus-inset={activatable ? '' : undefined}
@@ -229,6 +250,11 @@ export function DataTable<Row>({
                   }}
                   onKeyDown={event => {
                     if (!activatable) return;
+                    if (virtual && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                      event.preventDefault();
+                      focusRow(event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1))));
+                      return;
+                    }
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
                       onRowActivate?.(row, index);
@@ -261,6 +287,7 @@ export function DataTable<Row>({
               );
             })
           )}
+          {virtual && virtualWindow.after > 0 ? <tr aria-hidden><td colSpan={columns.length} style={{ height: virtualWindow.after, padding: 0, border: 0 }} /></tr> : null}
           {streaming ? (
             <Tr>
               <Td colSpan={columns.length} truncate={false} className="p-2">

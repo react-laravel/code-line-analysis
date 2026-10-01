@@ -22,6 +22,9 @@ export interface FileTab {
   search: string;
   /** Unsaved editor buffer. `undefined` means "same as disk" — i.e. not dirty. */
   draft?: string;
+  /** Disk version when this draft began; retained across editor remounts. */
+  originalHash?: string;
+  readOnly?: boolean;
 }
 
 /**
@@ -53,7 +56,9 @@ export interface TabsState {
   clearPendingClose: () => void;
   closeTabs: (ids: string[]) => void;
   /** `null` clears the buffer (saved or reverted) and with it the dirty dot. */
-  setDraft: (id: string, draft: string | null) => void;
+  setDraft: (id: string, draft: string | null, originalHash?: string) => void;
+  setReadOnly: (id: string, readOnly: boolean) => void;
+  markSaved: (id: string, content: string, hash: string) => void;
   reorder: (folderId: number, from: number, to: number) => void;
   dropFolder: (folderId: number) => void;
 }
@@ -138,7 +143,7 @@ function persist(map: Record<number, FileTab[]>): void {
   const clean: Record<number, FileTab[]> = {};
   for (const [folderId, tabs] of Object.entries(map)) {
     // Unsaved buffers are session state; a relaunch must not resurrect them.
-    clean[Number(folderId)] = tabs.map(({ draft: _draft, ...rest }) => rest);
+    clean[Number(folderId)] = tabs.map(({ draft: _draft, originalHash: _originalHash, ...rest }) => rest);
   }
   writePersisted(TABS_KEY, clean);
 }
@@ -209,7 +214,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     });
   },
 
-  setDraft(id, draft) {
+  setDraft(id, draft, originalHash) {
     set(state => {
       const map = { ...state.fileTabsByFolder };
       let changed = false;
@@ -222,16 +227,46 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         if (draft === null ? current === undefined : current === draft) continue;
         const next = tabs.slice();
         if (draft === null) {
-          const { draft: _draft, ...rest } = next[index];
+          const { draft: _draft, originalHash: _originalHash, ...rest } = next[index];
           next[index] = rest;
         } else {
-          next[index] = { ...next[index], draft };
+          next[index] = { ...next[index], draft, originalHash: next[index].originalHash ?? originalHash };
         }
         map[folderId] = next;
         changed = true;
       }
       // Drafts are never persisted, so no `persist()` here.
       return changed ? { fileTabsByFolder: map } : state;
+    });
+  },
+
+  setReadOnly(id, readOnly) {
+    set(state => {
+      const map = { ...state.fileTabsByFolder };
+      for (const [folderKey, tabs] of Object.entries(map)) {
+        if (!tabs.some(tab => tab.id === id && (tab.readOnly ?? true) !== readOnly)) continue;
+        map[Number(folderKey)] = tabs.map(tab => tab.id === id ? { ...tab, readOnly } : tab);
+        persist(map);
+        return { fileTabsByFolder: map };
+      }
+      return state;
+    });
+  },
+
+  markSaved(id, content, hash) {
+    set(state => {
+      const map = { ...state.fileTabsByFolder };
+      for (const [folderKey, tabs] of Object.entries(map)) {
+        if (!tabs.some(tab => tab.id === id && tab.draft !== undefined)) continue;
+        map[Number(folderKey)] = tabs.map(tab => {
+          if (tab.id !== id) return tab;
+          if (tab.draft !== content) return { ...tab, originalHash: hash };
+          const { draft: _draft, originalHash: _originalHash, ...rest } = tab;
+          return rest;
+        });
+        return { fileTabsByFolder: map };
+      }
+      return state;
     });
   },
 

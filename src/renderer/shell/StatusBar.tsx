@@ -33,6 +33,7 @@ export default function StatusBar() {
   const progress = useScanStore(state => state.progress);
   const durationMs = useScanStore(state => state.durationMs);
   const filesScanned = useScanStore(state => state.filesScanned);
+  const queuedCount = useScanStore(state => state.queuedFolderIds.length);
   const cancel = useScanStore(state => state.cancel);
 
   const scanning = status === 'running' || status === 'queued';
@@ -77,6 +78,9 @@ export default function StatusBar() {
           <span className="shrink-0 text-2xs text-fg-subtle">
             {t('app.cacheHits', { count: progress.cacheHits })}
           </span>
+        ) : null}
+        {queuedCount > 1 ? (
+          <span className="shrink-0 text-2xs text-fg-subtle">{t('app.scanQueue', { count: queuedCount })}</span>
         ) : null}
         {scanning ? (
           <IconButton

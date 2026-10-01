@@ -76,12 +76,16 @@ export function createTauriApi(): Api {
       onProgress: (cb) => subscribe<ScanProgress>('scan:progress', cb),
     },
     settings: {
+      getDetectDuplicates: () => invoke('settings_get_detect_duplicates'),
+      setDetectDuplicates: (enabled) => invoke('settings_set_detect_duplicates', { enabled }),
       getGlobalRules: () => invoke('settings_get_global_rules'),
       setGlobalRules: (rules) => invoke('settings_set_global_rules', { rules }),
     },
     stats: {
       summary: (folderId) => invoke('stats_summary', { folderId }),
-      tree: (folderId) => invoke('stats_tree', { folderId }),
+      tree: (folderId, expandedPaths) => invoke('stats_tree', { folderId, expandedPaths: expandedPaths ?? null }),
+      filesPage: (folderId, offset, limit) => invoke('stats_files_page', { folderId, offset: offset ?? 0, limit: limit ?? 1000 }),
+      fileDates: (folderId) => invoke('stats_file_dates', { folderId }),
       topFiles: (folderId, limit, sortBy) =>
         invoke('stats_top_files', { folderId, limit: limit ?? null, sortBy: sortBy ?? null }),
       topFunctions: (folderId, limit) =>
@@ -96,11 +100,12 @@ export function createTauriApi(): Api {
     },
     file: {
       read: (folderId, relPath) => invoke('file_read', { folderId, relPath }),
-      write: (folderId, relPath, content) => invoke('file_write', { folderId, relPath, content }),
+      write: (folderId, relPath, content, expectedHash) => invoke('file_write', { folderId, relPath, content, expectedHash }),
       meta: (folderId, relPath) => invoke('file_meta', { folderId, relPath }),
     },
     git: {
-      fileInfo: (folderId, relPath) => invoke('git_file_info', { folderId, relPath }),
+      fileInfo: (folderId, relPath, requestId) => invoke('git_file_info', { folderId, relPath, requestId: requestId ?? null }),
+      cancelFileInfo: (requestId) => invoke('git_cancel_file_info', { requestId }),
       repoInfo: (folderId) => invoke('git_repo_info', { folderId }),
     },
     system: {

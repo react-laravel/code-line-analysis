@@ -3,13 +3,25 @@ use rusqlite::Connection;
 use std::path::Path;
 
 pub const DEFAULT_BLACKLIST: &[&str] = &[
-    "node_modules", "vendor", "dist", "build", ".git",
-    "*.min.js", "*.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-    "Cargo.lock", "Gemfile.lock", "composer.lock", "go.sum",
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    ".git",
+    "*.min.js",
+    "*.lock",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "Cargo.lock",
+    "Gemfile.lock",
+    "composer.lock",
+    "go.sum",
 ];
 
 pub const DEFAULT_DUPLICATE_LINES: i64 = 8;
 pub const GLOBAL_RULES_KEY: &str = "globalRules";
+pub const DETECT_DUPLICATES_KEY: &str = "detectDuplicatesOnScan";
 
 pub fn open_db(app_data_dir: &Path) -> AppResult<Connection> {
     std::fs::create_dir_all(app_data_dir)?;
@@ -92,6 +104,12 @@ fn migrate(conn: &Connection) -> AppResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_duplicates_hash ON duplicates(hash);
         CREATE INDEX IF NOT EXISTS idx_duplicates_file ON duplicates(file_id);
+        CREATE TABLE IF NOT EXISTS duplicate_cache (
+          file_id INTEGER PRIMARY KEY,
+          hash TEXT NOT NULL,
+          config TEXT NOT NULL,
+          FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+        );
         "#,
     )?;
     Ok(())

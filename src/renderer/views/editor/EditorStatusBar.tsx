@@ -16,7 +16,7 @@ export default function EditorStatusBar({ git, cursor }: Props) {
           <>
             {t('editor.git')} {git.lastSha?.slice(0, 7) || '—'} {t('editor.gitBy')} {git.lastAuthor || '—'} {t('editor.gitOn')} {git.lastDate ? new Date(git.lastDate).toLocaleDateString(locale) : '—'}
             {git.topAuthors.length > 0
-              ? ` · ${t('editor.gitTop')}: ${git.topAuthors.map(author => `${author.author} (${author.lines.toLocaleString(locale)})`).join(', ')}`
+              ? ` · ${t('editor.gitCommittedAuthors')}: ${git.topAuthors.map(author => `${author.author} (${author.lines.toLocaleString(locale)})`).join(', ')}`
               : null}
           </>
         ) : null}

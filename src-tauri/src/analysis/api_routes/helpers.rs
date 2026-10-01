@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
 
@@ -17,9 +18,7 @@ pub(crate) fn normalize_rel_path(rel_path: &str) -> String {
 
 pub(crate) fn dirname(rel_path: &str) -> String {
     let n = normalize_rel_path(rel_path);
-    n.rfind('/')
-        .map(|i| n[..i].to_string())
-        .unwrap_or_default()
+    n.rfind('/').map(|i| n[..i].to_string()).unwrap_or_default()
 }
 
 pub(crate) fn basename(rel_path: &str) -> String {
@@ -103,15 +102,15 @@ pub(crate) fn split_args(args: &str) -> Vec<String> {
 }
 
 pub(crate) fn read_string_literal(value: &str) -> Option<String> {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"^['"`]([^'"`]+)['"`]$"#).unwrap());
     let v = value.trim();
-    let re = Regex::new(r#"^['"`]([^'"`]+)['"`]$"#).ok()?;
-    re.captures(v).map(|c| c.get(1).unwrap().as_str().to_string())
+    RE.captures(v)
+        .map(|c| c.get(1).unwrap().as_str().to_string())
 }
 
 pub(crate) fn read_first_string(value: &str) -> Option<String> {
-    Regex::new(r#"['"`]([^'"`]+)['"`]"#)
-        .ok()?
-        .captures(value)
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"['"`]([^'"`]+)['"`]"#).unwrap());
+    RE.captures(value)
         .map(|c| c.get(1).unwrap().as_str().to_string())
 }
 
@@ -180,4 +179,3 @@ pub(crate) fn find_matching_brace(value: &str, open_index: usize) -> Option<usiz
     }
     None
 }
-

@@ -99,7 +99,7 @@ export default function FolderSwitcher() {
           );
         }}
         size="sm"
-        className="max-w-64 min-w-40"
+        className="w-40 min-w-0 xl:w-56"
         placeholder={t('app.selectFolder')}
         searchPlaceholder={t('app.searchFolders')}
         emptyMessage={t('workspace.emptyTitle')}

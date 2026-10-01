@@ -63,7 +63,7 @@ export function Tooltip({ content, side = 'bottom', delayMs = 400, disabled, chi
   const trigger = cloneElement(children as React.ReactElement<Record<string, unknown>>, {
     ref: (node: HTMLElement | null) => {
       anchorRef.current = node;
-      const forwarded = (children as unknown as { ref?: React.Ref<HTMLElement> }).ref;
+      const forwarded = (children.props as { ref?: React.Ref<HTMLElement> }).ref;
       if (typeof forwarded === 'function') forwarded(node);
       else if (forwarded && typeof forwarded === 'object') {
         (forwarded as React.MutableRefObject<HTMLElement | null>).current = node;

@@ -56,14 +56,7 @@ impl FolderWatchManager {
                 if !should_scan {
                     return;
                 }
-                enqueue_folder_scan(
-                    app_cb.clone(),
-                    folder_id,
-                    ScanOptions {
-                        detect_duplicates: Some(true),
-                        ..Default::default()
-                    },
-                );
+                enqueue_folder_scan(app_cb.clone(), folder_id, ScanOptions::default());
             },
         ) {
             Ok(d) => d,

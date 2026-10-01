@@ -19,26 +19,33 @@ pub struct SourceFile {
     pub content: String,
 }
 
-pub fn load_source_files(conn: &Connection, folder_id: i64, root: &Path) -> AppResult<Vec<SourceFile>> {
+pub type SourceRow = (String, String, i64, i64);
+
+pub struct AnalysisSnapshot {
+    pub routes: crate::types::ApiRouteOverview,
+    pub relations: crate::types::FileRelationGraph,
+    pub schema: crate::types::LaravelSchemaGraph,
+}
+
+pub fn source_rows(conn: &Connection, folder_id: i64) -> AppResult<Vec<SourceRow>> {
     let mut stmt = conn.prepare(
         "SELECT rel_path, lang, total, code FROM files WHERE folder_id = ? AND deleted = 0",
     )?;
-    let rows: Vec<_> = stmt
+    let rows = stmt
         .query_map([folder_id], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
         })?
         .flatten()
         .collect();
+    Ok(rows)
+}
+
+pub fn load_source_files(rows: Vec<SourceRow>, root: &Path) -> Vec<SourceFile> {
     let mut out = Vec::new();
     for (rel, lang, total, code) in rows {
-        let path = root.join(&rel);
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        // skip huge files for analysis
-        if content.len() > 2_000_000 { continue; }
+        let Some((bytes, _)) = crate::scan::walk::read_regular_file(root, &rel, 2_000_000).ok().flatten() else { continue };
+        let Ok(content) = String::from_utf8(bytes) else { continue };
         out.push(SourceFile { rel_path: rel, lang, total, code, content });
     }
-    Ok(out)
+    out
 }

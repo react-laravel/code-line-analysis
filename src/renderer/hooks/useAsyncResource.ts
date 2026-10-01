@@ -64,7 +64,9 @@ export function useAsyncResource<T>({
       })
       .catch(cause => {
         if (cancelled) return;
-        setData(errorDataRef.current ? errorDataRef.current(cause) : initialDataRef.current);
+        // The identity-change effect clears old-folder data; a failed refresh
+        // of the same identity should retain its last truthful result.
+        if (errorDataRef.current) setData(errorDataRef.current(cause));
         setError(cause ?? new Error('Resource load failed'));
       })
       .finally(() => {

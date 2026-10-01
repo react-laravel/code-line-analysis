@@ -8,7 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 
 fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
 }
 
 fn is_available(path: &str) -> bool {
@@ -49,7 +52,9 @@ pub fn get_folder_rules(conn: &rusqlite::Connection, id: i64) -> AppResult<Folde
     let mut whitelist = Vec::new();
     let mut blacklist = Vec::new();
     let mut stmt = conn.prepare("SELECT type, pattern FROM rules WHERE folder_id = ?")?;
-    let rows = stmt.query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let rows = stmt.query_map([id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })?;
     for (ty, pat) in rows.flatten() {
         if ty == "whitelist" {
             whitelist.push(pat);
@@ -124,11 +129,16 @@ fn start_watch(app: &AppHandle, state: &AppState, folder: &FolderRow) {
 }
 
 #[tauri::command]
-pub fn folders_add(app: AppHandle, state: State<'_, AppState>, root_path: String) -> AppResult<FolderRow> {
+pub fn folders_add(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    root_path: String,
+) -> AppResult<FolderRow> {
     let row = {
         let conn = state.db.lock();
         add_folder_row(&conn, &root_path)?
     };
+    state.data_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     start_watch(&app, &state, &row);
     Ok(row)
 }
@@ -169,17 +179,16 @@ pub fn folders_add_git_repositories(
 pub fn folders_list(app: AppHandle, state: State<'_, AppState>) -> AppResult<Vec<FolderRow>> {
     let rows = {
         let conn = state.db.lock();
-        let mut stmt =
-            conn.prepare("SELECT id, root_path, name, created_at FROM folders ORDER BY created_at DESC")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, root_path, name, created_at FROM folders ORDER BY created_at DESC",
+        )?;
         let rows = stmt.query_map([], |r| {
             Ok(row_to_folder(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })?;
         rows.flatten().collect::<Vec<_>>()
     };
-    let watch_pairs: Vec<(i64, String)> = rows
-        .iter()
-        .map(|r| (r.id, r.root_path.clone()))
-        .collect();
+    let watch_pairs: Vec<(i64, String)> =
+        rows.iter().map(|r| (r.id, r.root_path.clone())).collect();
     state.watchers.refresh_all(&app, &watch_pairs);
     Ok(rows)
 }
@@ -224,6 +233,7 @@ pub fn folders_relocate(
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
+        state.data_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         row_to_folder(id, root_path, name, created_at)
     };
     start_watch(&app, &state, &row);
@@ -235,6 +245,7 @@ pub fn folders_remove(state: State<'_, AppState>, id: i64) -> AppResult<()> {
     state.watchers.stop(id);
     let conn = state.db.lock();
     conn.execute("DELETE FROM folders WHERE id = ?", [id])?;
+    state.data_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     conn.execute(
         "DELETE FROM app_settings WHERE key = ?",
         [db::duplicate_min_lines_key(id)],
@@ -276,14 +287,7 @@ pub fn folders_set_rules(
             )?;
         }
     }
-    enqueue_folder_scan(
-        app,
-        id,
-        ScanOptions {
-            detect_duplicates: Some(true),
-            ..Default::default()
-        },
-    );
+    enqueue_folder_scan(app, id, ScanOptions::default());
     Ok(normalized)
 }
 

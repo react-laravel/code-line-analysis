@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Copy, FileCode2, Files, SlidersHorizontal } from 'lucide-react';
 import type { DuplicateCluster } from '../../../shared/api';
-import { Badge, Button, EmptyState, Panel } from '../../components/ui';
+import { Badge, Button, EmptyState, Panel, toast } from '../../components/ui';
 import PathCell from '../../components/PathCell';
 import ScanNowButton from '../../components/ScanNowButton';
 import { useI18n } from '../../i18n';
@@ -33,10 +33,6 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
 
   const folderId = folder.id;
   const openRules = (): void => useAppStore.getState().openSettings('rules', 'duplicates');
-
-  async function loadClusters(): Promise<void> {
-    setClusters(await window.api.stats.duplicates(folderId));
-  }
 
   useEffect(() => {
     setClusters([]);
@@ -71,15 +67,20 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
   // 550ms debounce, unchanged from `DuplicatesView.tsx:101-108`.
   useEffect(() => {
     if (!active || minLinesDraft === minLines) return;
+    let ignore = false;
     const timer = window.setTimeout(() => {
       if (!Number.isInteger(minLinesDraft) || minLinesDraft < DUPLICATE_MIN_LINES_MIN) return;
       void window.api.folders.setDuplicateMinLines(folderId, minLinesDraft).then(() => {
+        if (ignore) return;
         setMinLines(minLinesDraft);
-        return loadClusters();
+        // The setter queues a backend rescan. Keep these truthful previous
+        // results until its completion bumps the revision and fetches new ones.
+      }).catch(error => {
+        if (!ignore) toast.show({ tone: 'danger', title: t('duplicates.updateFailed'), details: String(error) });
       });
     }, 550);
-    return () => window.clearTimeout(timer);
-  }, [active, folderId, minLines, minLinesDraft]);
+    return () => { ignore = true; window.clearTimeout(timer); };
+  }, [active, folderId, minLines, minLinesDraft, t]);
 
   const visible = useMemo(() => {
     const needle = query.toLowerCase();
@@ -94,7 +95,9 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
     visible.flatMap(cluster => cluster.occurrences.map(occurrence => occurrence.relPath)),
   ).size;
   const repeatedLineCount = visible.reduce(
-    (sum, cluster) => sum + (cluster.lines * cluster.occurrences.length),
+    (sum, cluster) => sum + cluster.occurrences.reduce(
+      (lines, occurrence) => lines + Math.max(0, occurrence.endLine - occurrence.startLine + 1), 0,
+    ),
     0,
   );
 
@@ -150,6 +153,8 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
       {visible.map((cluster, clusterIndex) => (
         <Panel
           key={cluster.hash}
+          collapsible
+          defaultOpen={clusterIndex === 0}
           padded={false}
           className="overflow-hidden"
           header={(
@@ -199,7 +204,7 @@ export function useDuplicatesLens({ folder, query, clearQuery, active }: LensArg
         onSelect: openRules,
       },
     ],
-    subtitle: t('duplicates.title', { count: minLines.toLocaleString(locale) }),
+    subtitle: t('duplicates.lastScanResults'),
     searchPlaceholder: t('duplicates.searchPlaceholder'),
     content,
   };

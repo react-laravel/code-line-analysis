@@ -30,6 +30,7 @@ import type { TopFile } from '../../shared/api';
 import { isActionableMenuItem, type MenuItem } from '../components/ui/_internal/types';
 import type { Command } from '../components/ui/command-palette';
 import type { RuleScope } from '../components/ui/rule-editor';
+import { loadFileIndex } from '../lib/file-index';
 import { collectDirectoryPaths, pathsForLevel } from '../lib/tree-nodes';
 import { useI18n, type TranslationKey } from '../i18n';
 import { useTheme } from '../theme';
@@ -180,14 +181,13 @@ export function useCommands(active: boolean): Command[] {
   const fileTabs = useFileTabs(folderId);
   const recent = useRecentFiles(folderId);
 
-  // The 5,000-row file list the Files lens already queries, fetched once per
-  // folder+scan and only while the palette is open.
+  // The complete paginated index is loaded only while the palette is open.
   const revision = useAppStore(state => state.revision);
   const [files, setFiles] = useState<TopFile[]>([]);
   useEffect(() => {
     if (!active || folderId == null) return;
     let ignore = false;
-    void window.api.stats.topFiles(folderId, 5000)
+    void loadFileIndex(folderId)
       .then(next => {
         if (!ignore) setFiles(next);
       })
