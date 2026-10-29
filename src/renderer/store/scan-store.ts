@@ -156,9 +156,18 @@ export function useIsScanning(): boolean {
 }
 
 export function isFolderScanning(
-  state: Pick<ScanState, 'status' | 'folderId'>,
+  state: Pick<ScanState, 'status' | 'folderId' | 'queuedFolderIds'>,
   folderId: number | null | undefined,
 ): boolean {
-  return folderId != null && state.folderId === folderId
-    && (state.status === 'running' || state.status === 'queued');
+  return folderId != null && (state.queuedFolderIds.includes(folderId)
+    || (state.folderId === folderId && (state.status === 'running' || state.status === 'queued')));
+}
+
+/** A waiting request is busy for this folder, but cannot cancel the active job. */
+export function isFolderQueued(
+  state: Pick<ScanState, 'status' | 'folderId' | 'queuedFolderIds'>,
+  folderId: number | null | undefined,
+): boolean {
+  return folderId != null && state.queuedFolderIds.includes(folderId)
+    && !(state.status === 'running' && state.folderId === folderId);
 }

@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { FileCode2 } from 'lucide-react';
+import { Code2, Columns2, Eye, FileCode2 } from 'lucide-react';
 import type { FileMeta, TagRow } from '../../../shared/api';
-import { Badge, Button, Kbd, Switch, Toolbar, type MenuItem } from '../../components/ui';
+import { Badge, Button, Kbd, Switch, Tabs, Toolbar, type MenuItem } from '../../components/ui';
+import type { MarkdownMode } from '../../store/tabs-store';
 import { useI18n } from '../../i18n';
 import { splitRelPath } from '../../lib/path';
 import { tagTone } from '../../lib/tag-tone';
@@ -17,6 +18,8 @@ interface Props {
   onReadOnlyChange: (readOnly: boolean) => void;
   onSave: () => void;
   onJumpToLine: (line: number) => void;
+  markdownMode?: MarkdownMode;
+  onMarkdownModeChange?: (mode: MarkdownMode) => void;
 }
 
 export default function EditorDocumentToolbar({
@@ -30,6 +33,8 @@ export default function EditorDocumentToolbar({
   onReadOnlyChange,
   onSave,
   onJumpToLine,
+  markdownMode,
+  onMarkdownModeChange,
 }: Props) {
   const { locale, t } = useI18n();
   const groupedTags = useMemo(
@@ -58,6 +63,20 @@ export default function EditorDocumentToolbar({
       overflow={overflow}
       actions={(
         <>
+          {markdownMode && onMarkdownModeChange ? (
+            <Tabs
+              variant="pill"
+              size="sm"
+              aria-label={t('editor.markdownDisplay')}
+              value={markdownMode}
+              onValueChange={value => onMarkdownModeChange(value as MarkdownMode)}
+              items={[
+                { value: 'source', label: t('editor.markdownSource'), icon: Code2 },
+                { value: 'preview', label: t('editor.markdownPreview'), icon: Eye },
+                { value: 'split', label: t('editor.markdownSplit'), icon: Columns2 },
+              ]}
+            />
+          ) : null}
           <Switch
             size="sm"
             checked={!readOnly}

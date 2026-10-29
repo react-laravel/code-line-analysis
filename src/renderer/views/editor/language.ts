@@ -32,6 +32,9 @@ const EXTENSION_LANGUAGE: Record<string, string> = {
   scss: 'scss',
   less: 'less',
   md: 'markdown',
+  markdown: 'markdown',
+  mdown: 'markdown',
+  mkd: 'markdown',
   vue: 'html',
   svelte: 'html',
   dart: 'dart',
@@ -42,4 +45,8 @@ export function editorLanguageForPath(relPath: string): string {
   const dot = relPath.lastIndexOf('.');
   if (dot < 0) return 'plaintext';
   return EXTENSION_LANGUAGE[relPath.slice(dot + 1).toLowerCase()] ?? 'plaintext';
+}
+
+export function isMarkdownPath(relPath: string): boolean {
+  return editorLanguageForPath(relPath) === 'markdown';
 }

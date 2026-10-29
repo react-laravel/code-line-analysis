@@ -4,7 +4,7 @@ import type { FolderRow } from '../../shared/api';
 import { toast } from '../components/ui/toast';
 import { useI18n } from '../i18n';
 import { useAppStore } from '../store/app-store';
-import { useScanStore } from '../store/scan-store';
+import { isFolderScanning, useScanStore } from '../store/scan-store';
 import { useTabsStore } from '../store/tabs-store';
 
 export interface FolderActions {
@@ -141,6 +141,7 @@ export function useFolderActions(): FolderActions {
     const { activeFolderId, folders, detectDuplicatesOnScan } = useAppStore.getState();
     if (activeFolderId == null) return;
     if (!folders.find(folder => folder.id === activeFolderId)?.isAvailable) return;
+    if (isFolderScanning(useScanStore.getState(), activeFolderId)) return;
     void useScanStore.getState().run(activeFolderId, {
       detectDuplicates: options?.detectDuplicates ?? detectDuplicatesOnScan,
     });

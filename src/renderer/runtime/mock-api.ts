@@ -651,6 +651,10 @@ export function createMockApi(): Api {
         if (!file) throw new Error(`File not found: ${relPath}`);
         return { content: file.content, meta: metaOf(file) };
       },
+      readImage: async (folderId, relPath) => {
+        requireFolder(folderId);
+        throw new Error(`Image not found in preview fixtures: ${relPath}`);
+      },
       write: async (folderId, relPath, content, expectedHash) => {
         const file = findFile(folderId, relPath);
         if (!file) throw new Error(`File not found: ${relPath}`);

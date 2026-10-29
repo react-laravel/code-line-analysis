@@ -7,12 +7,166 @@ use crate::parsers::func_detect::find_functions;
 use crate::scan::walk::{ensure_inside_root, read_regular_file};
 use crate::state::AppState;
 use crate::types::FileMeta;
+use base64::Engine;
 use sha1::{Digest, Sha1};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 const MAX_EDITOR_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
+
+/// Select an explicit raster MIME type from the bytes, never from an extension.
+/// SVG and arbitrary local files must not become executable image URLs.
+fn raster_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 33
+        && bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        && &bytes[8..16] == b"\0\0\0\rIHDR"
+        && bytes[16..20] != [0, 0, 0, 0]
+        && bytes[20..24] != [0, 0, 0, 0]
+    {
+        Some("image/png")
+    } else if bytes.len() >= 12
+        && bytes.starts_with(b"\xff\xd8\xff")
+        && bytes.ends_with(b"\xff\xd9")
+    {
+        Some("image/jpeg")
+    } else if bytes.len() >= 14
+        && (bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"))
+        && bytes[6..8] != [0, 0]
+        && bytes[8..10] != [0, 0]
+        && bytes.ends_with(b";")
+    {
+        Some("image/gif")
+    } else if bytes.len() >= 20
+        && bytes.starts_with(b"RIFF")
+        && &bytes[8..12] == b"WEBP"
+        && matches!(&bytes[12..16], b"VP8 " | b"VP8L" | b"VP8X")
+        && u32::from_le_bytes(bytes[4..8].try_into().ok()?) as usize == bytes.len() - 8
+    {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    // A real 1 x 1 PNG, including IHDR, compressed pixel data and IEND.
+    const SMALL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=";
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "cla-image-{}-{}-{}",
+                std::process::id(),
+                now_ms(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+
+        fn write_png(&self, rel_path: &str) {
+            let bytes = base64::engine::general_purpose::STANDARD.decode(SMALL_PNG).unwrap();
+            std::fs::write(self.0.join(rel_path), bytes).unwrap();
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn image_reads_use_raster_bytes_and_reject_text_or_svg() {
+        let root = TestDirectory::new();
+        std::fs::create_dir(root.path().join("assets")).unwrap();
+        root.write_png("assets/pixel.txt");
+        assert_eq!(
+            read_image_data_url(root.path(), "assets/pixel.txt").unwrap(),
+            format!("data:image/png;base64,{SMALL_PNG}")
+        );
+
+        for (name, content) in [
+            ("text.png", &b"ordinary text"[..]),
+            ("script.png", &b"<html><script>alert(1)</script></html>"[..]),
+            ("drawing.svg", &b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"[..]),
+            ("truncated.png", &b"\x89PNG\r\n\x1a\n"[..]),
+        ] {
+            std::fs::write(root.path().join(name), content).unwrap();
+            assert!(read_image_data_url(root.path(), name).is_err(), "accepted {name}");
+        }
+    }
+
+    #[test]
+    fn image_reads_reject_traversal_absolute_paths_directories_and_large_files() {
+        let parent = TestDirectory::new();
+        parent.write_png("outside.png");
+        let root = parent.path().join("repository");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(root.join("directory.png")).unwrap();
+        std::fs::File::create(root.join("large.png")).unwrap()
+            .set_len(MAX_IMAGE_BYTES + 1).unwrap();
+
+        for rel in ["../outside.png", "nested/../../outside.png", "directory.png", "missing.png", "large.png"] {
+            assert!(read_image_data_url(&root, rel).is_err(), "accepted {rel}");
+        }
+        assert!(read_image_data_url(&root, &parent.path().join("outside.png").to_string_lossy()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn image_reads_reject_file_and_directory_symlinks_and_fifo() {
+        use std::os::unix::{ffi::OsStrExt, fs::symlink};
+        let outside = TestDirectory::new();
+        outside.write_png("pixel.png");
+        let root = TestDirectory::new();
+        root.write_png("pixel.png");
+        symlink(root.path().join("pixel.png"), root.path().join("inside-link.png")).unwrap();
+        symlink(outside.path().join("pixel.png"), root.path().join("outside-link.png")).unwrap();
+        symlink(outside.path(), root.path().join("outside-directory")).unwrap();
+        let fifo = std::ffi::CString::new(root.path().join("pipe.png").as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+        for rel in ["inside-link.png", "outside-link.png", "outside-directory/pixel.png", "pipe.png"] {
+            assert!(read_image_data_url(root.path(), rel).is_err(), "accepted {rel}");
+        }
+    }
+}
+
+fn read_image_data_url(root: &std::path::Path, rel_path: &str) -> AppResult<String> {
+    let (bytes, _) = read_regular_file(root, rel_path, MAX_IMAGE_BYTES)?
+        .ok_or_else(|| AppError::msg("Only regular image files up to 5 MiB can be previewed"))?;
+    let mime = raster_image_mime(&bytes)
+        .ok_or_else(|| AppError::msg("Only PNG, JPEG, GIF and WebP images can be previewed"))?;
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+#[tauri::command]
+pub fn file_read_image(
+    state: State<'_, AppState>,
+    folder_id: i64,
+    rel_path: String,
+) -> AppResult<String> {
+    let root = {
+        let conn = state.db.lock();
+        PathBuf::from(db::folder_root(&conn, folder_id)?)
+    };
+    read_image_data_url(&root, &rel_path)
+}
 
 fn content_hash(content: &[u8]) -> String {
     hex::encode(Sha1::digest(content))

@@ -71,6 +71,7 @@ pub fn run() {
             commands::stats::stats_heatmap,
             commands::stats::stats_duplicates,
             commands::file::file_read,
+            commands::file::file_read_image,
             commands::file::file_write,
             commands::file::file_meta,
             commands::git::git_file_info,

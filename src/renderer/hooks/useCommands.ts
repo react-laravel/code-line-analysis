@@ -35,7 +35,7 @@ import { collectDirectoryPaths, pathsForLevel } from '../lib/tree-nodes';
 import { useI18n, type TranslationKey } from '../i18n';
 import { useTheme } from '../theme';
 import { useActiveFolder, useAppStore } from '../store/app-store';
-import { useScanStore } from '../store/scan-store';
+import { isFolderScanning, useScanStore } from '../store/scan-store';
 import { tabRoute, useFileTabs, useRecentFiles } from '../store/tabs-store';
 import { useFolderActions } from './useFolderActions';
 
@@ -176,6 +176,7 @@ export function useCommands(active: boolean): Command[] {
   const explorerTree = useAppStore(state => state.explorerTree);
   const sidebarCollapsed = useAppStore(state => state.sidebarCollapsed);
   const scanStatus = useScanStore(state => state.status);
+  const folderScanning = useScanStore(state => isFolderScanning(state, folder?.id));
 
   const folderId = folder?.id ?? null;
   const fileTabs = useFileTabs(folderId);
@@ -261,7 +262,7 @@ export function useCommands(active: boolean): Command[] {
         icon: RefreshCw,
         title: t('app.rescanFull'),
         shortcut: 'Mod+R',
-        disabled: !canScan || scanning,
+        disabled: !canScan || folderScanning,
         disabledReason: t('palette.noFolder'),
         perform: () => actions.rescan({ detectDuplicates: true }),
       },
@@ -270,7 +271,7 @@ export function useCommands(active: boolean): Command[] {
         group: 'action',
         icon: RefreshCw,
         title: t('app.rescanWithoutDuplicates'),
-        disabled: !canScan || scanning,
+        disabled: !canScan || folderScanning,
         disabledReason: t('palette.noFolder'),
         perform: () => actions.rescan({ detectDuplicates: false }),
       },
@@ -522,6 +523,7 @@ export function useCommands(active: boolean): Command[] {
     files,
     folder,
     folderId,
+    folderScanning,
     folders,
     language,
     languageOptions,

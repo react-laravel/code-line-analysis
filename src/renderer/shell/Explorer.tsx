@@ -9,7 +9,7 @@ import { DropdownMenu } from '../components/ui/menu';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Spinner } from '../components/ui/spinner';
 import { TreeRow } from '../components/ui/tree-row';
-import ScanNowButton from '../components/ScanNowButton';
+import ScanEmptyState from '../components/ScanEmptyState';
 import { useVirtualWindow } from '../hooks/useVirtualWindow';
 import { cn } from '../lib/utils';
 import {
@@ -338,7 +338,7 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
         ) : null}
       </header>
 
-      {tree && rows.length > 0 ? (
+      {tree && tree.files > 0 && rows.length > 0 ? (
         <div
           title={breadcrumbs.join('/')}
           aria-label={t('tree.currentPath')}
@@ -369,12 +369,11 @@ export default function Explorer({ collapsed }: { collapsed: boolean }) {
           <div className="flex items-center justify-center py-6">
             <Spinner size="sm" label={t('tree.loading')} />
           </div>
-        ) : !tree ? (
-          <EmptyState
+        ) : !tree || tree.files === 0 ? (
+          <ScanEmptyState
             size="sm"
-            title={t('common.noData')}
-            description={t('tree.noData')}
-            action={<ScanNowButton folderId={folder.id} disabled={!folder.isAvailable} />}
+            folderId={folder.id}
+            disabled={!folder.isAvailable}
           />
         ) : (
           <div

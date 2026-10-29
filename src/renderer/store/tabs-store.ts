@@ -14,6 +14,8 @@ import { readPersisted, writePersisted } from './persist';
  * or leaving the editor no longer throws the edit away. That is what makes the
  * dirty dot honest, and it is why closing a dirty tab has something to confirm.
  */
+export type MarkdownMode = 'source' | 'preview' | 'split';
+
 export interface FileTab {
   id: string;
   folderId: number;
@@ -25,6 +27,7 @@ export interface FileTab {
   /** Disk version when this draft began; retained across editor remounts. */
   originalHash?: string;
   readOnly?: boolean;
+  markdownMode?: MarkdownMode;
 }
 
 /**
@@ -58,6 +61,7 @@ export interface TabsState {
   /** `null` clears the buffer (saved or reverted) and with it the dirty dot. */
   setDraft: (id: string, draft: string | null, originalHash?: string) => void;
   setReadOnly: (id: string, readOnly: boolean) => void;
+  setMarkdownMode: (id: string, mode: MarkdownMode) => void;
   markSaved: (id: string, content: string, hash: string) => void;
   reorder: (folderId: number, from: number, to: number) => void;
   dropFolder: (folderId: number) => void;
@@ -246,6 +250,19 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       for (const [folderKey, tabs] of Object.entries(map)) {
         if (!tabs.some(tab => tab.id === id && (tab.readOnly ?? true) !== readOnly)) continue;
         map[Number(folderKey)] = tabs.map(tab => tab.id === id ? { ...tab, readOnly } : tab);
+        persist(map);
+        return { fileTabsByFolder: map };
+      }
+      return state;
+    });
+  },
+
+  setMarkdownMode(id, mode) {
+    set(state => {
+      const map = { ...state.fileTabsByFolder };
+      for (const [folderKey, tabs] of Object.entries(map)) {
+        if (!tabs.some(tab => tab.id === id && tab.markdownMode !== mode)) continue;
+        map[Number(folderKey)] = tabs.map(tab => tab.id === id ? { ...tab, markdownMode: mode } : tab);
         persist(map);
         return { fileTabsByFolder: map };
       }

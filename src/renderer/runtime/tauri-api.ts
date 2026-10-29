@@ -100,6 +100,7 @@ export function createTauriApi(): Api {
     },
     file: {
       read: (folderId, relPath) => invoke('file_read', { folderId, relPath }),
+      readImage: (folderId, relPath) => invoke('file_read_image', { folderId, relPath }),
       write: (folderId, relPath, content, expectedHash) => invoke('file_write', { folderId, relPath, content, expectedHash }),
       meta: (folderId, relPath) => invoke('file_meta', { folderId, relPath }),
     },

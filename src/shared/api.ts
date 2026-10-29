@@ -250,6 +250,7 @@ export interface Api {
   };
   file: {
     read: (folderId: number, relPath: string) => Promise<{ content: string; meta: FileMeta }>;
+    readImage: (folderId: number, relPath: string) => Promise<string>;
     write: (folderId: number, relPath: string, content: string, expectedHash: string) => Promise<FileMeta>;
     meta: (folderId: number, relPath: string) => Promise<FileMeta | null>;
   };

@@ -2,7 +2,7 @@ import { RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { useI18n } from '../i18n';
 import { useAppStore } from '../store/app-store';
-import { isFolderScanning, useIsScanning, useScanStore } from '../store/scan-store';
+import { isFolderQueued, isFolderScanning, useScanStore } from '../store/scan-store';
 
 interface Props {
   folderId: number;
@@ -17,8 +17,8 @@ interface Props {
  */
 export default function ScanNowButton({ folderId, disabled }: Props) {
   const { t } = useI18n();
-  const busy = useIsScanning();
   const scanning = useScanStore(state => isFolderScanning(state, folderId));
+  const queued = useScanStore(state => isFolderQueued(state, folderId));
   const run = useScanStore(state => state.run);
   const detectDuplicates = useAppStore(state => state.detectDuplicatesOnScan);
 
@@ -27,10 +27,12 @@ export default function ScanNowButton({ folderId, disabled }: Props) {
       variant="primary"
       icon={RefreshCw}
       loading={scanning}
-      disabled={disabled || busy}
-      onClick={() => void run(folderId, { detectDuplicates })}
+      disabled={disabled || scanning}
+      onClick={() => {
+        if (!isFolderScanning(useScanStore.getState(), folderId)) void run(folderId, { detectDuplicates });
+      }}
     >
-      {t('common.scanNow')}
+      {queued ? t('app.scanQueued') : scanning ? t('app.scanStatus') : t('common.scanNow')}
     </Button>
   );
 }

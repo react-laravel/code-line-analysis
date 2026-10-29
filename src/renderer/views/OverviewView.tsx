@@ -25,7 +25,7 @@ import {
   type Column,
 } from '../components/ui';
 import NoFolderState from '../components/NoFolderState';
-import ScanNowButton from '../components/ScanNowButton';
+import ScanEmptyState from '../components/ScanEmptyState';
 import { useAsyncResource } from '../hooks/useAsyncResource';
 import { useI18n } from '../i18n';
 import { axisValueLabelOf, firstFormatterParam } from '../utils/echartsParams';
@@ -397,12 +397,8 @@ export default function OverviewView({ folder }: Props) {
             <Skeleton variant="tile" className="h-64" />
           </div>
         </>
-      ) : !stats ? (
-        <EmptyState
-          title={t('common.noData')}
-          description={t('dashboard.noData')}
-          action={<ScanNowButton folderId={folder.id} disabled={!folder.isAvailable} />}
-        />
+      ) : !stats || stats.totalFiles === 0 ? (
+        <ScanEmptyState folderId={folder.id} disabled={!folder.isAvailable} />
       ) : (
         <>
           <MetricGrid metrics={metrics} />

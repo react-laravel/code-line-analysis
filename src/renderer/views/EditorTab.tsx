@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { RefreshCw, X } from 'lucide-react';
@@ -16,10 +16,11 @@ import { commandsFromMenu, useRegisterCommands } from '../hooks/useCommands';
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { useAppStore, useRevision } from '../store/app-store';
-import { EDITOR_PREFIX, tabId, useTabsStore } from '../store/tabs-store';
+import { EDITOR_PREFIX, tabId, useTabsStore, type MarkdownMode } from '../store/tabs-store';
 import EditorDocumentToolbar from './editor/EditorDocumentToolbar';
 import EditorStatusBar from './editor/EditorStatusBar';
-import { editorLanguageForPath } from './editor/language';
+import { editorLanguageForPath, isMarkdownPath } from './editor/language';
+import MarkdownPreview from './editor/MarkdownPreview';
 import { useEditorNavigation } from './editor/useEditorNavigation';
 
 interface Props {
@@ -51,14 +52,26 @@ export default function EditorTab({ folder }: Props) {
   const targetEndLine = Number(searchParams.get('endLine')) || 0;
   const highlightKind = searchParams.get('highlight');
   const currentFileKey = folder && decodedPath ? tabId(folder.id, decodedPath) : '';
+  const markdown = isMarkdownPath(decodedPath);
+  const markdownAnchor = searchParams.get('markdownAnchor');
 
   const setDraft = useTabsStore(state => state.setDraft);
   const markSaved = useTabsStore(state => state.markSaved);
   const readOnly = useTabsStore(state => folder ? state.fileTabsByFolder[folder.id]
     ?.find(tab => tab.id === currentFileKey)?.readOnly ?? true : true);
-  const setReadOnly = useCallback((value: boolean) => {
-    if (currentFileKey) useTabsStore.getState().setReadOnly(currentFileKey, value);
+  const preferredMarkdownMode = useTabsStore(state => folder ? state.fileTabsByFolder[folder.id]
+    ?.find(tab => tab.id === currentFileKey)?.markdownMode ?? 'preview' : 'preview');
+  const markdownMode = markdown ? preferredMarkdownMode : 'source';
+  const setMarkdownMode = useCallback((mode: MarkdownMode) => {
+    if (currentFileKey) useTabsStore.getState().setMarkdownMode(currentFileKey, mode);
   }, [currentFileKey]);
+  const setReadOnly = useCallback((value: boolean) => {
+    if (!currentFileKey) return;
+    const store = useTabsStore.getState();
+    store.setReadOnly(currentFileKey, value);
+    const mode = folder ? store.fileTabsByFolder[folder.id]?.find(tab => tab.id === currentFileKey)?.markdownMode : undefined;
+    if (!value && markdown && (mode ?? 'preview') === 'preview') store.setMarkdownMode(currentFileKey, 'split');
+  }, [currentFileKey, folder?.id, markdown]);
   const requestClose = useTabsStore(state => state.requestClose);
 
   const [content, setContent] = useState<string>('');
@@ -85,6 +98,7 @@ export default function EditorTab({ folder }: Props) {
 
   function jumpToLine(lineNumber: number) {
     if (!decodedPath) return;
+    if (markdown && markdownMode === 'preview') setMarkdownMode('source');
     // `replace` so the marker chips do not stack up in the history; the shell
     // mirrors the new `?line=` back onto the tab.
     navigate(`${EDITOR_PREFIX}${encodeURIComponent(decodedPath)}?line=${lineNumber}`, { replace: true });
@@ -92,6 +106,17 @@ export default function EditorTab({ folder }: Props) {
   }
 
   /* ------------------------------------------------------------------ data */
+
+  // Line links must reveal source even if this document was last read in
+  // preview. Apply this only when the navigation target changes, so the user
+  // can still choose another view after arriving at a highlighted line.
+  useEffect(() => {
+    if (!folder || !markdown || !currentFileKey) return;
+    const store = useTabsStore.getState();
+    const mode = store.fileTabsByFolder[folder.id]?.find(tab => tab.id === currentFileKey)?.markdownMode ?? 'preview';
+    if (targetLine > 0 && mode === 'preview') store.setMarkdownMode(currentFileKey, 'source');
+    else if (targetLine <= 0 && markdownAnchor && mode === 'source') store.setMarkdownMode(currentFileKey, 'preview');
+  }, [currentFileKey, folder?.id, markdown, markdownAnchor, targetLine, targetEndLine, highlightKind]);
 
   useEffect(() => {
     if (!folder || !decodedPath) return;
@@ -154,6 +179,7 @@ export default function EditorTab({ folder }: Props) {
   }, [currentFileKey, decodedPath, folder?.id, scanRevision]);
 
   const loaded = Boolean(loadedPath) && loadedPath === currentFileKey;
+  const previewContent = useDeferredValue(loaded && markdownMode !== 'source' ? content : '');
   const dirty = loaded && content !== original;
   const { cursor, onMount, revealTargetLine } = useEditorNavigation({
     loaded,
@@ -290,6 +316,13 @@ export default function EditorTab({ folder }: Props) {
       hint: decodedPath,
       perform: () => setReadOnly(!readOnly),
     },
+    ...(markdown ? (['source', 'preview', 'split'] as const).map(mode => ({
+      id: `editor-tab:markdown-${mode}`,
+      group: 'action' as const,
+      title: t(mode === 'source' ? 'editor.markdownSource' : mode === 'preview' ? 'editor.markdownPreview' : 'editor.markdownSplit'),
+      hint: decodedPath,
+      perform: () => setMarkdownMode(mode),
+    })) : []),
     ...commandsFromMenu('editor-tab', overflow, { hint: decodedPath }),
   ]);
 
@@ -308,6 +341,8 @@ export default function EditorTab({ folder }: Props) {
         onReadOnlyChange={setReadOnly}
         onSave={() => void save()}
         onJumpToLine={jumpToLine}
+        markdownMode={markdown ? markdownMode : undefined}
+        onMarkdownModeChange={setMarkdownMode}
       />
 
       {loadError ? (
@@ -327,31 +362,61 @@ export default function EditorTab({ folder }: Props) {
           {/* Monaco stays mounted across tab switches — only `path` changes, so
               it keeps a model (and its undo stack) per file. The skeleton
               covers it while the next file is being read. */}
-          <div className="relative min-h-0 flex-1" aria-busy={!loaded || undefined}>
-            <Editor
-              height="100%"
-              theme={theme === 'light' ? 'vs' : 'vs-dark'}
-              path={currentFileKey}
-              language={editorLanguageForPath(decodedPath)}
-              loading={t('editor.loadingAssets')}
-              value={content}
-              onChange={v => setContent(v ?? '')}
-              beforeMount={beforeMount}
-              onMount={onMount}
-              options={{
-                readOnly,
-                glyphMargin: true,
-                minimap: { enabled: (meta?.size ?? 0) < 512 * 1024 },
-                fontSize: 13,
-                wordWrap: (meta?.size ?? 0) < 512 * 1024 ? 'on' : 'off',
-                largeFileOptimizations: true,
-                automaticLayout: true,
-              }}
-            />
-            {!loaded ? (
-              <div className="absolute inset-0 bg-surface p-3">
-                <Skeleton variant="row" count={20} />
+          <div className="flex min-h-0 min-w-0 flex-1" data-markdown-mode={markdown ? markdownMode : undefined}>
+            <section
+              role={markdown ? 'region' : undefined}
+              hidden={markdownMode === 'preview'}
+              aria-label={markdown ? t('editor.markdownSourceRegion') : undefined}
+              data-markdown-source={markdown || undefined}
+              className="flex min-h-0 min-w-0 flex-1 flex-col [&[hidden]]:hidden"
+            >
+              {markdownMode === 'split' ? (
+                <div className="shrink-0 border-b border-border bg-surface px-3 py-1.5 text-xs text-fg-muted">{t('editor.markdownSource')}</div>
+              ) : null}
+              <div className="relative min-h-0 flex-1" aria-busy={!loaded || undefined}>
+                <Editor
+                  height="100%"
+                  theme={theme === 'light' ? 'vs' : 'vs-dark'}
+                  path={currentFileKey}
+                  language={editorLanguageForPath(decodedPath)}
+                  loading={t('editor.loadingAssets')}
+                  value={content}
+                  onChange={v => setContent(v ?? '')}
+                  beforeMount={beforeMount}
+                  onMount={onMount}
+                  options={{
+                    readOnly,
+                    glyphMargin: true,
+                    minimap: { enabled: (meta?.size ?? 0) < 512 * 1024 },
+                    fontSize: 13,
+                    wordWrap: (meta?.size ?? 0) < 512 * 1024 ? 'on' : 'off',
+                    largeFileOptimizations: true,
+                    automaticLayout: true,
+                  }}
+                />
+                {!loaded ? (
+                  <div className="absolute inset-0 bg-surface p-3">
+                    <Skeleton variant="row" count={20} />
+                  </div>
+                ) : null}
               </div>
+            </section>
+            {markdown && markdownMode !== 'source' ? (
+              <section className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-border bg-canvas">
+                {markdownMode === 'split' ? (
+                  <div className="shrink-0 border-b border-border bg-surface px-3 py-1.5 text-xs text-fg-muted">{t('editor.markdownPreview')}</div>
+                ) : null}
+                {loaded ? (
+                  <MarkdownPreview
+                    content={previewContent}
+                    folderId={folder.id}
+                    relPath={decodedPath}
+                    ariaLabel={t('editor.markdownPreviewRegion')}
+                  />
+                ) : (
+                  <div className="flex-1 p-5"><Skeleton variant="row" count={15} /></div>
+                )}
+              </section>
             ) : null}
           </div>
           <EditorStatusBar git={git} cursor={cursor} />

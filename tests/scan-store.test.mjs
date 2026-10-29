@@ -1,10 +1,21 @@
 import assert from 'node:assert/strict';
-import { after, before, beforeEach, test } from 'node:test';
+import { after, afterEach, before, beforeEach, test } from 'node:test';
+import { act, createElement as h } from 'react';
+import { JSDOM } from 'jsdom';
 import { createServer } from 'vite';
 
 let server;
+let dom;
+let root;
+let createRoot;
+let MemoryRouter;
+let I18nProvider;
+let ThemeProvider;
+let TitleBar;
+let ScanNowButton;
 let useScanStore;
 let isFolderScanning;
+let isFolderQueued;
 let useAppStore;
 let onProgress;
 let resolveScan;
@@ -15,8 +26,15 @@ const timers = new Map();
 let timerId = 0;
 
 before(async () => {
-  globalThis.window = {
-    localStorage: { getItem: () => null, setItem: () => {} },
+  dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'https://scan.test/', pretendToBeVisual: true,
+  });
+  for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'KeyboardEvent']) {
+    globalThis[key] = key === 'window' ? dom.window : dom.window[key];
+  }
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  Object.assign(window, {
     setTimeout: callback => {
       timers.set(++timerId, callback);
       return timerId;
@@ -39,15 +57,22 @@ before(async () => {
         cancel: async () => { cancelCalls += 1; },
       },
     },
-  };
+  });
+  ({ createRoot } = await import('react-dom/client'));
+  ({ MemoryRouter } = await import('react-router-dom'));
   server = await createServer({
     configFile: false,
+    esbuild: { jsx: 'automatic' },
     server: { middlewareMode: true, watch: null, hmr: false, ws: false },
     optimizeDeps: { noDiscovery: true, include: [] },
     appType: 'custom',
   });
-  ({ useScanStore, isFolderScanning } = await server.ssrLoadModule('/src/renderer/store/scan-store.ts'));
+  ({ useScanStore, isFolderScanning, isFolderQueued } = await server.ssrLoadModule('/src/renderer/store/scan-store.ts'));
   ({ useAppStore } = await server.ssrLoadModule('/src/renderer/store/app-store.ts'));
+  ({ I18nProvider } = await server.ssrLoadModule('/src/renderer/i18n.tsx'));
+  ({ ThemeProvider } = await server.ssrLoadModule('/src/renderer/theme.tsx'));
+  ({ default: TitleBar } = await server.ssrLoadModule('/src/renderer/shell/TitleBar.tsx'));
+  ({ default: ScanNowButton } = await server.ssrLoadModule('/src/renderer/components/ScanNowButton.tsx'));
 });
 
 beforeEach(() => {
@@ -57,12 +82,23 @@ beforeEach(() => {
   timers.clear();
   cancelCalls = 0;
   scans = [];
+  window.localStorage.clear();
+  window.localStorage.setItem('code-line-analysis-language', 'en');
   useScanStore.getState().listen();
+});
+
+afterEach(async () => {
+  if (root) await act(async () => { root.unmount(); });
+  root = undefined;
+  document.body.replaceChildren();
 });
 
 after(async () => {
   await server?.close();
-  delete globalThis.window;
+  dom?.window.close();
+  for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'KeyboardEvent', 'IS_REACT_ACT_ENVIRONMENT']) {
+    delete globalThis[key];
+  }
 });
 
 function progress(phase, folderId = 1, outcome) {
@@ -254,4 +290,108 @@ test('the current folder control follows its own queued, running and finished st
   resolveScan({ totalFiles: 10 });
   await pending;
   assert.equal(isFolderScanning(useScanStore.getState(), 60), false);
+});
+
+test('a current-folder request remains queued while another repository scans', async () => {
+  progress('walking', 45);
+  const pending = useScanStore.getState().run(60);
+  assert.equal(useScanStore.getState().folderId, 45);
+  assert.equal(useScanStore.getState().status, 'running');
+  assert.equal(isFolderScanning(useScanStore.getState(), 45), true);
+  assert.equal(isFolderScanning(useScanStore.getState(), 60), true);
+  assert.equal(isFolderQueued(useScanStore.getState(), 45), false);
+  assert.equal(isFolderQueued(useScanStore.getState(), 60), true);
+  progress('done', 45, 'success');
+  assert.equal(isFolderQueued(useScanStore.getState(), 60), true);
+  progress('walking', 60);
+  assert.equal(isFolderQueued(useScanStore.getState(), 60), false);
+  progress('done', 60, 'success');
+  scans[0].resolve({ totalFiles: 12 });
+  await pending;
+  assert.equal(isFolderScanning(useScanStore.getState(), 60), false);
+});
+
+async function mountControls() {
+  const folders = [45, 60].map(id => ({
+    id, name: `Repository ${id}`, rootPath: `/projects/${id}`, createdAt: 0, isAvailable: true,
+  }));
+  useAppStore.setState({
+    folders, activeFolderId: 60, detectDuplicatesOnScan: true,
+    repoInfoByFolder: { 45: null, 60: null },
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => {
+    root.render(h(MemoryRouter, { future: { v7_startTransition: true, v7_relativeSplatPath: true } },
+      h(I18nProvider, null, h(ThemeProvider, null,
+        h('div', { 'data-titlebar': true }, h(TitleBar)),
+        h('div', { 'data-scan-now': true }, h(ScanNowButton, { folderId: 60 }))))));
+  });
+}
+
+function rescanButton() {
+  return document.querySelector('[data-titlebar] button[aria-label="Rescan"]');
+}
+
+function scanNowButton() {
+  return document.querySelector('[data-scan-now] button');
+}
+
+function cancelButton() {
+  return [...document.querySelectorAll('[data-titlebar] button')].find(node => node.textContent.trim() === 'Cancel scan');
+}
+
+test('Rescan stays available during another scan, queues once and cannot cancel that scan', async () => {
+  progress('walking', 45);
+  await mountControls();
+  const rescan = rescanButton();
+  const scanNow = scanNowButton();
+  assert.ok(rescan);
+  assert.equal(rescan.disabled, false);
+  assert.equal(scanNow.disabled, false);
+  await act(async () => { rescan.click(); rescan.click(); scanNow.click(); });
+  assert.deepEqual(scans.map(scan => scan.folderId), [60]);
+  assert.equal(useScanStore.getState().folderId, 45);
+  assert.equal(cancelButton(), undefined);
+  assert.equal(scanNowButton().disabled, true);
+  assert.equal(scanNowButton().textContent.trim(), 'Scan queued');
+  const waiting = [...document.querySelectorAll('[data-titlebar] button')]
+    .find(node => node.textContent.trim() === 'Scan queued');
+  assert.ok(waiting);
+  assert.equal(waiting.disabled, true);
+  await act(async () => { waiting.click(); scanNowButton().click(); });
+  assert.equal(cancelCalls, 0);
+  assert.equal(scans.length, 1);
+  await act(async () => { progress('done', 45, 'success'); progress('walking', 60); });
+  assert.ok(cancelButton());
+  await act(async () => { cancelButton().click(); });
+  assert.equal(cancelCalls, 1);
+  await act(async () => {
+    progress('done', 60, 'cancelled');
+    scans[0].reject(new Error('Scan cancelled'));
+  });
+  assert.equal(rescanButton().disabled, false);
+  assert.equal(scanNowButton().disabled, false);
+});
+
+test('Scan now queues the current repository during unrelated work and prevents duplicate clicks', async () => {
+  progress('walking', 45);
+  await mountControls();
+  const scanNow = scanNowButton();
+  assert.equal(scanNow.disabled, false);
+  await act(async () => { scanNow.click(); scanNow.click(); });
+  assert.equal(scans.length, 1);
+  assert.equal(scans[0].folderId, 60);
+  assert.equal(scanNowButton().disabled, true);
+  assert.equal(scanNowButton().textContent.trim(), 'Scan queued');
+  assert.equal(cancelButton(), undefined);
+  await act(async () => {
+    progress('done', 45, 'success');
+    progress('parsing', 60);
+    progress('done', 60, 'success');
+    scans[0].resolve({ totalFiles: 12 });
+  });
+  assert.equal(scanNowButton().disabled, false);
+  assert.equal(scanNowButton().textContent.trim(), 'Scan now');
 });

@@ -1,5 +1,4 @@
 use super::languages::LangDef;
-use super::line_parser::find_char_offset;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
@@ -29,6 +28,9 @@ fn push_matches(out: &mut Vec<FoundTag>, text: &str, line_no: i64) {
 
 pub fn scan_tags(content: &str, lang: Option<&LangDef>) -> Vec<FoundTag> {
     let Some(lang) = lang else { return vec![] };
+    // No comment syntax means there can be no comment tags. This also avoids
+    // walking megabyte-long generated JSON lines character by character.
+    if lang.line.is_empty() && lang.block.is_empty() { return vec![]; }
     let lines: Vec<&str> = {
         let mut out = Vec::new();
         let mut start = 0usize;
@@ -54,37 +56,36 @@ pub fn scan_tags(content: &str, lang: Option<&LangDef>) -> Vec<FoundTag> {
         let mut index = 0usize;
         let mut in_string: Option<(&str, &str)> = None;
         let mut comment_parts: Vec<String> = Vec::new();
-        let chars: Vec<char> = raw.chars().collect();
-        while index < chars.len() {
+        // Borrow suffixes at UTF-8 byte boundaries instead of allocating a copy
+        // for every character, so generated source lines take linear work.
+        while index < raw.len() {
             if let Some((_, end)) = in_block {
-                let rest: String = chars[index..].iter().collect();
+                let rest = &raw[index..];
                 if let Some(pos) = rest.find(end) {
-                    // pos is a byte offset: slice with it, advance the char cursor in chars
                     comment_parts.push(rest[..pos].to_string());
-                    index += rest[..pos].chars().count() + end.chars().count();
+                    index += pos + end.len();
                     in_block = None;
                 } else {
-                    comment_parts.push(rest);
-                    index = chars.len();
+                    comment_parts.push(rest.to_string());
+                    index = raw.len();
                 }
                 continue;
             }
             if let Some((_, end)) = in_string {
-                let rest: String = chars[index..].iter().collect();
-                if let Some(pos) = find_char_offset(&rest, end) {
-                    index += pos + end.chars().count();
+                if let Some(pos) = raw[index..].find(end) {
+                    index += pos + end.len();
                     in_string = None;
                 } else {
-                    index = chars.len();
+                    index = raw.len();
                 }
                 continue;
             }
-            let rest: String = chars[index..].iter().collect();
+            let rest = &raw[index..];
             let mut matched = false;
             for m in lang.line {
                 if rest.starts_with(m) {
                     comment_parts.push(rest[m.len()..].to_string());
-                    index = chars.len();
+                    index = raw.len();
                     matched = true;
                     break;
                 }
@@ -92,16 +93,15 @@ pub fn scan_tags(content: &str, lang: Option<&LangDef>) -> Vec<FoundTag> {
             if matched { break; }
             for &(start, end) in lang.block {
                 if rest.starts_with(start) {
-                    let after = index + start.chars().count();
-                    let rest2: String = chars[after..].iter().collect();
+                    let after = index + start.len();
+                    let rest2 = &raw[after..];
                     if let Some(pos) = rest2.find(end) {
-                        // pos is a byte offset: slice with it, advance the char cursor in chars
                         comment_parts.push(rest2[..pos].to_string());
-                        index = after + rest2[..pos].chars().count() + end.chars().count();
+                        index = after + pos + end.len();
                     } else {
-                        comment_parts.push(rest2);
+                        comment_parts.push(rest2.to_string());
                         in_block = Some((start, end));
-                        index = chars.len();
+                        index = raw.len();
                     }
                     matched = true;
                     break;
@@ -110,14 +110,14 @@ pub fn scan_tags(content: &str, lang: Option<&LangDef>) -> Vec<FoundTag> {
             if matched { continue; }
             for &(s, e) in lang.string {
                 if rest.starts_with(s) {
-                    index += s.chars().count();
+                    index += s.len();
                     in_string = Some((s, e));
                     matched = true;
                     break;
                 }
             }
             if matched { continue; }
-            index += 1;
+            index += rest.chars().next().unwrap().len_utf8();
         }
         for part in comment_parts {
             push_matches(&mut out, &part, line_no);
@@ -130,6 +130,7 @@ pub fn scan_tags(content: &str, lang: Option<&LangDef>) -> Vec<FoundTag> {
 mod tests {
     use super::scan_tags;
     use crate::parsers::languages::detect_lang;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn finds_tag_after_unicode_block_comment() {
@@ -140,5 +141,44 @@ mod tests {
         assert_eq!(tags[0].kind, "TODO");
         assert_eq!(tags[0].text, "fix this");
         assert_eq!(tags[0].line_no, 1);
+    }
+
+    #[test]
+    fn scans_unicode_multiline_comments_and_ignores_string_tags() {
+        let (_, lang, _) = detect_lang("example.ts");
+        let tags = scan_tags(
+            "const 名称 = \"// TODO: inside string\";\r\n/* 中文 FIXME: repair\r\n NOTE: investigate */ // TODO: next\r\n",
+            lang.as_ref(),
+        );
+
+        assert_eq!(tags.len(), 3);
+        assert_eq!((tags[0].kind.as_str(), tags[0].text.as_str(), tags[0].line_no), ("FIXME", "repair", 2));
+        assert_eq!((tags[1].kind.as_str(), tags[1].text.as_str(), tags[1].line_no), ("NOTE", "investigate", 3));
+        assert_eq!((tags[2].kind.as_str(), tags[2].text.as_str(), tags[2].line_no), ("TODO", "next", 3));
+    }
+
+    #[test]
+    fn skips_megabyte_json_without_comment_syntax() {
+        let (_, lang, _) = detect_lang("geometry.json");
+        let content = format!("[{}\"TODO: data\"]", "123,".repeat(500_000));
+        let started = Instant::now();
+        let tags = scan_tags(&content, lang.as_ref());
+
+        assert!(tags.is_empty());
+        assert!(started.elapsed() < Duration::from_secs(5), "long JSON line took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn finds_comment_tag_after_megabyte_generated_javascript_line() {
+        let (_, lang, _) = detect_lang("geometry.js");
+        let content = format!("export const geometry = [{}0]; // TODO: generated", "123,".repeat(500_000));
+        let started = Instant::now();
+        let tags = scan_tags(&content, lang.as_ref());
+
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].kind, "TODO");
+        assert_eq!(tags[0].text, "generated");
+        assert_eq!(tags[0].line_no, 1);
+        assert!(started.elapsed() < Duration::from_secs(5), "long JS line took {:?}", started.elapsed());
     }
 }

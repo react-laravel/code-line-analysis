@@ -33,6 +33,7 @@ commands.allow = [
   "stats_heatmap",
   "stats_duplicates",
   "file_read",
+  "file_read_image",
   "file_write",
   "file_meta",
   "git_file_info",

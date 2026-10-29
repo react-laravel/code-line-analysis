@@ -9,12 +9,6 @@ pub struct LineCounts {
     pub block_comment: i64,
 }
 
-pub(crate) fn find_char_offset(haystack: &str, needle: &str) -> Option<usize> {
-    haystack
-        .find(needle)
-        .map(|byte_offset| haystack[..byte_offset].chars().count())
-}
-
 pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
     // Proper split preserving lines like JS
     let lines: Vec<&str> = {
@@ -47,7 +41,11 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
         total: lines.len() as i64,
         ..Default::default()
     };
-    let Some(lang) = lang else {
+    // Languages without comments or strings (JSON, Markdown) need only a
+    // whitespace check. In particular, generated JSON can be one very long line.
+    let Some(lang) = lang.filter(|lang| {
+        !lang.line.is_empty() || !lang.block.is_empty() || !lang.string.is_empty()
+    }) else {
         for ln in &lines {
             if ln.trim().is_empty() {
                 counts.blank += 1;
@@ -66,28 +64,28 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
             continue;
         }
         let mut i = 0;
-        let chars: Vec<char> = raw.chars().collect();
+        let bytes = raw.as_bytes();
         let mut saw_code = false;
         let mut saw_comment = false;
         let mut saw_block = false;
         let mut in_string: Option<(&str, &str)> = None;
 
-        while i < chars.len() {
+        // Keep a byte cursor at UTF-8 boundaries and borrow the remaining slice.
+        // Building that suffix for each character made long lines quadratic.
+        while i < raw.len() {
             if let Some((_, end)) = in_block {
                 saw_block = true;
-                let rest: String = chars[i..].iter().collect();
-                if let Some(pos) = find_char_offset(&rest, end) {
-                    i += end.chars().count() + pos;
+                if let Some(pos) = raw[i..].find(end) {
+                    i += end.len() + pos;
                     in_block = None;
                 } else {
-                    i = chars.len();
+                    i = raw.len();
                 }
                 continue;
             }
             if let Some((_, end)) = in_string {
-                let rest: String = chars[i..].iter().collect();
                 // naive find end
-                if let Some(cursor) = find_char_offset(&rest, end) {
+                if let Some(cursor) = raw[i..].find(end) {
                     // handle escapes roughly
                     let mut abs = i + cursor;
                     loop {
@@ -95,7 +93,7 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
                         let mut k = abs;
                         while k > i {
                             k -= 1;
-                            if chars[k] == '\\' {
+                            if bytes[k] == b'\\' {
                                 bs += 1;
                             } else {
                                 break;
@@ -104,39 +102,38 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
                         if bs % 2 == 0 {
                             break;
                         }
-                        let after = abs + end.chars().count();
-                        let rest2: String = chars[after..].iter().collect();
-                        if let Some(n) = find_char_offset(&rest2, end) {
+                        let after = abs + end.len();
+                        if let Some(n) = raw[after..].find(end) {
                             abs = after + n;
                         } else {
-                            abs = chars.len();
+                            abs = raw.len();
                             break;
                         }
                     }
-                    if abs >= chars.len() {
-                        i = chars.len();
+                    if abs >= raw.len() {
+                        i = raw.len();
                     } else {
-                        i = abs + end.chars().count();
+                        i = abs + end.len();
                         in_string = None;
                     }
                 } else {
-                    i = chars.len();
+                    i = raw.len();
                 }
                 continue;
             }
 
-            let ch = chars[i];
+            let ch = raw[i..].chars().next().unwrap();
             if ch == ' ' || ch == '\t' {
                 i += 1;
                 continue;
             }
 
-            let rest: String = chars[i..].iter().collect();
+            let rest = &raw[i..];
             let mut matched = false;
             for m in lang.line {
                 if rest.starts_with(m) {
                     saw_comment = true;
-                    i = chars.len();
+                    i = raw.len();
                     matched = true;
                     break;
                 }
@@ -147,15 +144,14 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
 
             for &(start, end) in lang.block {
                 if rest.starts_with(start) {
-                    i += start.chars().count();
-                    let rest2: String = chars[i..].iter().collect();
-                    if let Some(pos) = find_char_offset(&rest2, end) {
+                    i += start.len();
+                    if let Some(pos) = raw[i..].find(end) {
                         saw_block = true;
-                        i += pos + end.chars().count();
+                        i += pos + end.len();
                     } else {
                         saw_block = true;
                         in_block = Some((start, end));
-                        i = chars.len();
+                        i = raw.len();
                     }
                     matched = true;
                     break;
@@ -167,7 +163,7 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
 
             for &(s, e) in lang.string {
                 if rest.starts_with(s) {
-                    i += s.chars().count();
+                    i += s.len();
                     in_string = Some((s, e));
                     matched = true;
                     break;
@@ -178,7 +174,7 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
             }
 
             saw_code = true;
-            i += 1;
+            i += ch.len_utf8();
         }
 
         if saw_block {
@@ -200,6 +196,7 @@ pub fn count_lines(content: &str, lang: Option<&LangDef>) -> LineCounts {
 mod tests {
     use super::count_lines;
     use crate::parsers::languages::detect_lang;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn handles_unicode_before_escaped_string_delimiters() {
@@ -218,5 +215,47 @@ mod tests {
         assert_eq!(counts.total, 2);
         assert_eq!(counts.block_comment, 1);
         assert_eq!(counts.code, 1);
+    }
+
+    #[test]
+    fn preserves_comment_counts_and_crlf_with_unicode() {
+        let (_, lang, _) = detect_lang("example.ts");
+        let counts = count_lines(
+            "/* 中文注释\r\n   continued */\r\nconst 名称 = \"/* string */\"; // comment\r\n// TODO: fix\r\n",
+            lang.as_ref(),
+        );
+
+        assert_eq!(counts.total, 5);
+        assert_eq!(counts.code, 1);
+        assert_eq!(counts.comment, 1);
+        assert_eq!(counts.block_comment, 2);
+        assert_eq!(counts.blank, 1);
+    }
+
+    #[test]
+    fn counts_megabyte_generated_json_without_scanning_syntax() {
+        let (_, lang, _) = detect_lang("geometry.json");
+        let content = format!("[{}0]", "123,".repeat(500_000));
+        let started = Instant::now();
+        let counts = count_lines(&content, lang.as_ref());
+
+        assert_eq!(counts.total, 1);
+        assert_eq!(counts.code, 1);
+        assert_eq!(counts.comment, 0);
+        assert_eq!(counts.blank, 0);
+        assert!(started.elapsed() < Duration::from_secs(5), "long JSON line took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn counts_megabyte_generated_javascript_line_in_linear_time() {
+        let (_, lang, _) = detect_lang("geometry.js");
+        let content = format!("export const geometry = [{}0]; // generated", "123,".repeat(500_000));
+        let started = Instant::now();
+        let counts = count_lines(&content, lang.as_ref());
+
+        assert_eq!(counts.total, 1);
+        assert_eq!(counts.code, 1);
+        assert_eq!(counts.comment, 0);
+        assert!(started.elapsed() < Duration::from_secs(5), "long JS line took {:?}", started.elapsed());
     }
 }

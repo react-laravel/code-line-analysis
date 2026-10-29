@@ -7,7 +7,7 @@ import { Tooltip } from '../components/ui/tooltip';
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { useActiveFolder, useAppStore } from '../store/app-store';
-import { isFolderScanning, useIsScanning, useScanStore } from '../store/scan-store';
+import { isFolderQueued, isFolderScanning, useScanStore } from '../store/scan-store';
 import { useFolderActions } from '../hooks/useFolderActions';
 import FolderSwitcher from './FolderSwitcher';
 import { isTauriRuntime } from '../runtime/tauri-api';
@@ -40,15 +40,29 @@ export default function TitleBar() {
   const toggleSidebar = useAppStore(state => state.toggleSidebar);
   const setSettingsOpen = useAppStore(state => state.setSettingsOpen);
   const setPaletteOpen = useAppStore(state => state.setPaletteOpen);
-  const busy = useIsScanning();
   const scanning = useScanStore(state => isFolderScanning(state, folder?.id));
+  const queued = useScanStore(state => isFolderQueued(state, folder?.id));
   const lastScanAt = useScanStore(state => (folder ? state.lastScanAt[folder.id] : undefined));
   const actions = useFolderActions();
 
   const canScan = folder != null && folder.isAvailable;
 
-  const rescan = scanning ? (
-    <Button size="sm" loading onClick={actions.cancelScan}>
+  function requestScan(options?: { detectDuplicates?: boolean }): void {
+    if (isFolderScanning(useScanStore.getState(), folder?.id)) return;
+    actions.rescan(options);
+  }
+
+  function cancelCurrentScan(): void {
+    const state = useScanStore.getState();
+    if (state.status === 'running' && state.folderId === folder?.id) actions.cancelScan();
+  }
+
+  const rescan = queued ? (
+    <Button size="sm" disabled loading>
+      {t('app.scanQueued')}
+    </Button>
+  ) : scanning ? (
+    <Button size="sm" loading onClick={cancelCurrentScan}>
       {t('app.cancelScan')}
     </Button>
   ) : (
@@ -56,22 +70,22 @@ export default function TitleBar() {
       variant="secondary"
       size="sm"
       icon={RefreshCw}
-      disabled={!canScan || busy}
+      disabled={!canScan}
       aria-label={t('app.rescan')}
       menuLabel={t('app.rescanOptions')}
-      onClick={() => actions.rescan()}
+      onClick={() => requestScan()}
       items={[
         {
           id: 'rescan-full',
           label: t('app.rescanFull'),
-          onSelect: () => actions.rescan({ detectDuplicates: true }),
-          disabled: !canScan || busy,
+          onSelect: () => requestScan({ detectDuplicates: true }),
+          disabled: !canScan,
         },
         {
           id: 'rescan-no-duplicates',
           label: t('app.rescanWithoutDuplicates'),
-          onSelect: () => actions.rescan({ detectDuplicates: false }),
-          disabled: !canScan || busy,
+          onSelect: () => requestScan({ detectDuplicates: false }),
+          disabled: !canScan,
         },
       ]}
     >
@@ -102,8 +116,9 @@ export default function TitleBar() {
           </span>
         ) : null}
         {folder ? (
-          <Badge size="xs" tone={lastScanAt ? 'neutral' : 'warning'} dot className="hidden shrink-0 xl:inline-flex">
-            {lastScanAt ? t('app.scannedAgo', { ago: formatAgo(lastScanAt, locale) }) : t('app.neverScanned')}
+          <Badge size="xs" tone={queued ? 'neutral' : scanning ? 'running' : lastScanAt ? 'neutral' : 'warning'} dot className="hidden shrink-0 xl:inline-flex">
+            {queued ? t('app.scanQueued') : scanning ? t('app.scanStatus')
+              : lastScanAt ? t('app.scannedAgo', { ago: formatAgo(lastScanAt, locale) }) : t('app.neverScanned')}
           </Badge>
         ) : null}
       </div>
